@@ -53,7 +53,7 @@ func (app *App) launching(foundation.Notification) {
 	w.SetTitlebarAppearsTransparent(false)
 	w.SetToolbar(createToolbar(w, controller))
 	w.SetContentViewController(controller)
-	w.SetContentSize(utility.SizeOf(800, 600))
+	w.SetContentSize(windowFrame)
 	w.SetContentMinSize(windowFrame)
 	w.SetTitle("Proxy Tools")
 	w.Center()
