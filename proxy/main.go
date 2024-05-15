@@ -15,7 +15,9 @@ func main() {
 	proxy.ConnectDial = func(network, addr string) (net.Conn, error) {
 		https_proxy := "http://172.16.100.150:23128"
 		if strings.Contains(addr, "openai.com") ||
-			strings.Contains(addr, "chatgpt.com") {
+			strings.Contains(addr, "chatgpt.com") ||
+			strings.Contains(addr, "anthropic.com") ||
+			strings.Contains(addr, "claude.ai") {
 			https_proxy = "http://172.16.0.150:23128"
 		}
 		return proxy.NewConnectDialToProxy(https_proxy)(network, addr)

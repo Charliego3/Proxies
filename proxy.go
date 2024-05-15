@@ -13,17 +13,15 @@ import (
 type Creator struct {
 	appkit.IView
 	w appkit.IWindow
-	p appkit.Panel
+	p appkit.IWindow
 }
 
-func NewCreator(w appkit.IWindow, p appkit.Panel) Creator {
+func NewCreator(w appkit.IWindow, p appkit.IWindow) Creator {
 	return Creator{IView: appkit.NewView(), w: w, p: p}
 }
 
 func (c Creator) Init(title string) {
 	c.p.SetContentView(c)
-	c.p.MakeFirstResponder(c.w.FirstResponder())
-	fmt.Println(c.p.AcceptsFirstResponder(), c.p.BecomeFirstResponder())
 	label := appkit.NewLabel(title)
 	label.SetTranslatesAutoresizingMaskIntoConstraints(false)
 	c.AddSubview(label)
@@ -41,10 +39,8 @@ func (c Creator) Init(title string) {
 
 	ok := appkit.NewPushButton("Save")
 	ok.SetBezelStyle(appkit.BezelStyleRounded)
+	ok.SetState(appkit.MixedState)
 	ok.SetTranslatesAutoresizingMaskIntoConstraints(false)
-	action.Set(ok, func(sender objc.Object) {
-		c.w.EndSheetReturnCode(c.p, appkit.ModalResponseOK)
-	})
 	c.AddSubview(ok)
 	layout.SetMinWidth(ok, 100)
 	layout.PinAnchorTo(ok.TrailingAnchor(), c.TrailingAnchor(), -20)
@@ -66,72 +62,61 @@ func (c Creator) Init(title string) {
 	layout.PinAnchorTo(box.TrailingAnchor(), c.TrailingAnchor(), -20)
 	layout.PinAnchorTo(box.BottomAnchor(), ok.TopAnchor(), -15)
 
-	i := appkit.NewTextField()
-	i.SetEditable(true)
-	i.SetEnabled(true)
-	i.SetTranslatesAutoresizingMaskIntoConstraints(false)
-	c.AddSubview(i)
-	layout.SetMinWidth(i, 100)
-	layout.SetMinHeight(i, 30)
-	layout.PinAnchorTo(i.TopAnchor(), c.TopAnchor(), 5)
-	layout.PinAnchorTo(i.TrailingAnchor(), c.TrailingAnchor(), -5)
+	types := appkit.NewPopUpButton()
+	types.AddItemsWithTitles([]string{
+		"HTTP",
+		"HTTPS",
+	})
+	types.SetTranslatesAutoresizingMaskIntoConstraints(false)
+	layout.SetMinWidth(types, 250)
+	namei := appkit.NewTextField()
+	namei.SetToolTip("toop tips")
+	hosti := appkit.NewTextField()
+	porti := appkit.NewTextField()
+	typesHandler := func(sender objc.Object) {
+		if "HTTPS" == types.TitleOfSelectedItem() {
+			hosti.SetPlaceholderString("example.com")
+			porti.SetPlaceholderString("443")
+		} else {
+			hosti.SetPlaceholderString("192.168.1.2")
+			porti.SetPlaceholderString("80")
+		}
+	}
+	typesHandler(objc.NewObject())
+	action.Set(types, typesHandler)
 
-	content := appkit.NewViewWithFrame(utility.RectOf(utility.SizeOf(400, 300)))
-	content.SetTranslatesAutoresizingMaskIntoConstraints(false)
-	content.SetWantsLayer(true)
-	content.Layer().SetBorderWidth(1)
-	content.Layer().SetBorderColor(appkit.Color_BlackColor().CGColor())
-	content.Layer().SetCornerRadius(5)
-	box.AddSubview(content)
-	layout.SetMinWidth(content, 400)
-	layout.SetMinHeight(content, 300)
-	layout.AliginCenterX(content, box)
-	layout.AliginCenterY(content, box)
+	grid := appkit.GridView_GridViewWithViews([][]appkit.IView{
+		{appkit.NewLabel("Name:"), namei},
+		{appkit.NewLabel("Type:"), types},
+		{appkit.NewLabel("Host:"), hosti},
+		{appkit.NewLabel("Port:"), porti},
+	})
+	grid.SetColumnSpacing(10)
+	grid.SetRowSpacing(10)
+	grid.SetXPlacement(appkit.GridCellPlacementTrailing)
+	grid.SetTranslatesAutoresizingMaskIntoConstraints(false)
+	box.AddSubview(grid)
+	layout.SetMinWidth(grid, 300)
+	layout.AliginCenterX(grid, box)
+	layout.AliginCenterY(grid, box)
 
-	name := appkit.NewLabel("Proxy name")
-	name.SetTranslatesAutoresizingMaskIntoConstraints(false)
-	content.AddSubview(name)
-	layout.AliginLeading(name, content)
-	layout.AliginTop(name, content)
-
-	ni := appkit.NewTextField()
-	ni.SetTranslatesAutoresizingMaskIntoConstraints(false)
-	ni.SetEditable(true)
-	content.AddSubview(ni)
-	layout.PinAnchorTo(ni.LeadingAnchor(), name.TrailingAnchor(), 20)
-	layout.PinAnchorTo(ni.TrailingAnchor(), content.TrailingAnchor(), -5)
-	layout.AliginTop(ni, content)
-
-	t := appkit.NewLabel("Proxy Type")
-	t.SetTranslatesAutoresizingMaskIntoConstraints(false)
-	content.AddSubview(t)
-	layout.AliginLeading(t, content)
-	layout.PinAnchorTo(t.TopAnchor(), name.BottomAnchor(), 5)
-
-	ti := appkit.NewTextField()
-	ti.SetEnabled(true)
-	ti.SetEditable(true)
-	ti.SetTranslatesAutoresizingMaskIntoConstraints(false)
-	content.AddSubview(ti)
-	layout.PinAnchorTo(ti.LeadingAnchor(), t.TrailingAnchor(), 20)
-	layout.PinAnchorTo(ti.TopAnchor(), ni.BottomAnchor(), 5)
-	layout.PinAnchorTo(ti.TrailingAnchor(), content.TrailingAnchor(), -5)
-	layout.AliginTrailing(ti, content)
+	action.Set(ok, func(sender objc.Object) {
+		c.w.EndSheetReturnCode(c.p, appkit.ModalResponseOK)
+	})
 }
 
-func (Creator) Handle(code appkit.ModalResponse) {
+func (Creator) Handler(code appkit.ModalResponse) {
 	fmt.Println(code, ".......")
 }
 
 func OpenNewPanelSheet(w appkit.IWindow) {
-	panel := appkit.NewPanelWithContentRectStyleMaskBackingDefer(
-		utility.RectOf(utility.SizeOf(600, 500)),
-		appkit.WindowStyleMaskFullSizeContentView,
-		appkit.BackingStoreBuffered,
-		false,
+	panel := appkit.NewWindowWithSizeAndStyle(
+		500, 400,
+		appkit.WindowStyleMaskTitled|
+			appkit.WindowStyleMaskFullSizeContentView,
 	)
 
 	creator := NewCreator(w, panel)
-	creator.Init("Choose options for your new Proxy")
-	w.BeginSheetCompletionHandler(panel, creator.Handle)
+	creator.Init("Choose options for your new Proxy:")
+	w.BeginSheetCompletionHandler(panel, creator.Handler)
 }
