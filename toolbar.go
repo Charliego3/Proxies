@@ -8,20 +8,17 @@ import (
 )
 
 const (
-	ToolbarAddConnButtonIdentifier appkit.ToolbarItemIdentifier = "AddProxy"
-	ToolbarToggleSidebarIdentifier appkit.ToolbarItemIdentifier = "ToolbarToggleSidebar"
+	ToolbarAddProxyButtonIdentifier appkit.ToolbarItemIdentifier = "AddProxy"
+	ToolbarToggleSidebarIdentifier  appkit.ToolbarItemIdentifier = "ToolbarToggleSidebar"
 )
 
 type Toolbar struct {
 	appkit.Toolbar
-	w appkit.Window
-
 	splitViewController appkit.SplitViewController
 }
 
-func createToolbar(w appkit.Window, controller appkit.SplitViewController) *Toolbar {
+func createToolbar(controller appkit.SplitViewController) *Toolbar {
 	toolbar := new(Toolbar)
-	toolbar.w = w
 	toolbar.splitViewController = controller
 	toolbar.Toolbar = appkit.NewToolbar()
 	toolbar.SetDisplayMode(appkit.ToolbarDisplayModeIconOnly)
@@ -35,7 +32,7 @@ func (t Toolbar) identifiers(appkit.Toolbar) []appkit.ToolbarItemIdentifier {
 	return []appkit.ToolbarItemIdentifier{
 		ToolbarToggleSidebarIdentifier,
 		appkit.ToolbarFlexibleSpaceItemIdentifier,
-		ToolbarAddConnButtonIdentifier,
+		ToolbarAddProxyButtonIdentifier,
 		appkit.ToolbarSidebarTrackingSeparatorItemIdentifier,
 		appkit.ToolbarFlexibleSpaceItemIdentifier,
 		appkit.ToolbarFlexibleSpaceItemIdentifier,
@@ -69,12 +66,16 @@ func (t Toolbar) getToolbarDelegate() *appkit.ToolbarDelegate {
 			return t.createItem(identifier, "sidebar.leading", func(sender objc.Object) {
 				t.splitViewController.ToggleSidebar(nil)
 			})
-		case ToolbarAddConnButtonIdentifier:
+		case ToolbarAddProxyButtonIdentifier:
 			return t.createItem(identifier, "plus", func(_ objc.Object) {
-				OpenNewPanelSheet(t.w)
+				OpenNewProxySheet()
 			})
 		}
 		return appkit.ToolbarItem{}
 	})
 	return delegate
+}
+
+func OpenNewProxySheet() {
+	OpenProxySheet("Choose options for your new Proxy:", NewProxy())
 }

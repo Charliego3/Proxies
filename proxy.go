@@ -1,26 +1,32 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"net/url"
+	"strconv"
+	"strings"
+	"sync"
 
 	"github.com/charliego3/proxies/utility"
+	"github.com/google/uuid"
 	"github.com/progrium/macdriver/helper/action"
 	"github.com/progrium/macdriver/helper/layout"
 	"github.com/progrium/macdriver/macos/appkit"
+	"github.com/progrium/macdriver/macos/foundation"
 	"github.com/progrium/macdriver/objc"
 )
 
 type Creator struct {
 	appkit.IView
-	w appkit.IWindow
 	p appkit.IWindow
 }
 
-func NewCreator(w appkit.IWindow, p appkit.IWindow) Creator {
-	return Creator{IView: appkit.NewView(), w: w, p: p}
+func NewCreator(p appkit.IWindow) Creator {
+	return Creator{IView: appkit.NewView(), p: p}
 }
 
-func (c Creator) Init(title string) {
+func (c Creator) Init(title string, proxy Proxy) {
 	c.p.SetContentView(c)
 	label := appkit.NewLabel(title)
 	label.SetTranslatesAutoresizingMaskIntoConstraints(false)
@@ -31,7 +37,7 @@ func (c Creator) Init(title string) {
 	cancel := appkit.NewPushButton("Cancel")
 	cancel.SetBezelStyle(appkit.BezelStyleRounded)
 	cancel.SetTranslatesAutoresizingMaskIntoConstraints(false)
-	action.Set(cancel, func(sender objc.Object) { c.w.EndSheet(c.p) })
+	action.Set(cancel, func(sender objc.Object) { MainWindow.EndSheet(c.p) })
 	c.AddSubview(cancel)
 	layout.SetMinWidth(cancel, 100)
 	layout.PinAnchorTo(cancel.LeadingAnchor(), c.LeadingAnchor(), 20)
@@ -67,12 +73,17 @@ func (c Creator) Init(title string) {
 		"HTTP",
 		"HTTPS",
 	})
+	types.SelectItemWithTitle(proxy.Type)
 	types.SetTranslatesAutoresizingMaskIntoConstraints(false)
 	layout.SetMinWidth(types, 250)
 	namei := appkit.NewTextField()
-	namei.SetToolTip("toop tips")
+	namei.SetStringValue(proxy.Name)
 	hosti := appkit.NewTextField()
+	hosti.SetStringValue(proxy.Host)
 	porti := appkit.NewTextField()
+	if proxy.Port > 0 {
+		porti.SetStringValue(strconv.Itoa(proxy.Port))
+	}
 	typesHandler := func(sender objc.Object) {
 		if "HTTPS" == types.TitleOfSelectedItem() {
 			hosti.SetPlaceholderString("example.com")
@@ -85,38 +96,172 @@ func (c Creator) Init(title string) {
 	typesHandler(objc.NewObject())
 	action.Set(types, typesHandler)
 
+	authed := "Username & Password"
+	authentication := appkit.NewPopUpButton()
+	authentication.AddItemsWithTitles([]string{"None", authed})
+	authentication.SetTranslatesAutoresizingMaskIntoConstraints(false)
+	var paddingTop float64 = 75
+	if proxy.Auth {
+		authentication.SelectItemWithTitle(authed)
+		paddingTop = 50
+	}
+	layout.SetMinWidth(authentication, 250)
+
+	unamel := appkit.NewLabel("Username:")
+	unamei := appkit.NewTextField()
+	unamei.SetStringValue(proxy.Username)
+	passl := appkit.NewLabel("Password:")
+	passi := appkit.NewTextField()
+	passi.SetStringValue(proxy.Password)
 	grid := appkit.GridView_GridViewWithViews([][]appkit.IView{
 		{appkit.NewLabel("Name:"), namei},
 		{appkit.NewLabel("Type:"), types},
 		{appkit.NewLabel("Host:"), hosti},
 		{appkit.NewLabel("Port:"), porti},
+		{appkit.NewLabel("Authenication"), authentication},
+		{unamel, unamei},
+		{passl, passi},
 	})
-	grid.SetColumnSpacing(10)
+	grid.SetColumnSpacing(7)
 	grid.SetRowSpacing(10)
 	grid.SetXPlacement(appkit.GridCellPlacementTrailing)
 	grid.SetTranslatesAutoresizingMaskIntoConstraints(false)
 	box.AddSubview(grid)
 	layout.SetMinWidth(grid, 300)
 	layout.AliginCenterX(grid, box)
-	layout.AliginCenterY(grid, box)
+	constraint := grid.TopAnchor().ConstraintEqualToAnchorConstant(box.TopAnchor(), paddingTop)
+	constraint.SetActive(true)
 
+	authenticationHandler := func(sender objc.Object) {
+		paddingTop = 50
+		if authentication.TitleOfSelectedItem() == authed {
+			unamei.SetHidden(false)
+			unamel.SetHidden(false)
+			passl.SetHidden(false)
+			passi.SetHidden(false)
+		} else {
+			unamei.SetHidden(true)
+			unamel.SetHidden(true)
+			passl.SetHidden(true)
+			passi.SetHidden(true)
+			paddingTop = 75
+		}
+		constraint.SetActive(false)
+		constraint = grid.TopAnchor().ConstraintEqualToAnchorConstant(box.TopAnchor(), paddingTop)
+		constraint.SetActive(true)
+		grid.SetNeedsUpdateConstraints(true)
+	}
+	authenticationHandler(objc.NewObject())
+	action.Set(authentication, authenticationHandler)
 	action.Set(ok, func(sender objc.Object) {
-		c.w.EndSheetReturnCode(c.p, appkit.ModalResponseOK)
+		ok.SetEnabled(false)
+		showWaring := func(message string) {
+			utility.ShowAlert(
+				utility.WithAlertTitle("Options are invalid"),
+				utility.WithAlertMessage(message),
+				utility.WithAlertWindow(c.p),
+				utility.WithAlertStyle(appkit.AlertStyleWarning),
+			)
+			ok.SetEnabled(true)
+			ok.SetState(appkit.MixedState)
+		}
+		name := namei.StringValue()
+		port := porti.StringValue()
+		host := hosti.StringValue()
+		if name == "" {
+			showWaring("Name can not be empty")
+			return
+		}
+		if host == "" {
+			showWaring("Host can not be empty")
+			return
+		}
+		schema := types.TitleOfSelectedItem()
+		if port == "" {
+			if schema == "HTTP" {
+				port = "80"
+			} else {
+				port = "443"
+			}
+		}
+		_, err := url.Parse(fmt.Sprintf("%s://%s:%s", strings.ToLower(schema), host, port))
+		if err != nil {
+			showWaring(err.Error())
+			return
+		}
+		proxy.Name = name
+		proxy.Type = schema
+		proxy.Host = host
+		proxy.Port, _ = strconv.Atoi(port)
+		proxy.Auth = authentication.TitleOfSelectedItem() == authed
+		proxy.Username = unamei.StringValue()
+		proxy.Password = passi.StringValue()
+		UpdateProxies(proxy)
+		MainWindow.Sidebar.Update()
+		MainWindow.EndSheetReturnCode(c.p, appkit.ModalResponseOK)
 	})
 }
 
-func (Creator) Handler(code appkit.ModalResponse) {
-	fmt.Println(code, ".......")
-}
+func (Creator) Handler(code appkit.ModalResponse) {}
 
-func OpenNewPanelSheet(w appkit.IWindow) {
+func OpenProxySheet(title string, proxy Proxy) {
 	panel := appkit.NewWindowWithSizeAndStyle(
 		500, 400,
 		appkit.WindowStyleMaskTitled|
 			appkit.WindowStyleMaskFullSizeContentView,
 	)
 
-	creator := NewCreator(w, panel)
-	creator.Init("Choose options for your new Proxy:")
-	w.BeginSheetCompletionHandler(panel, creator.Handler)
+	creator := NewCreator(panel)
+	creator.Init(title, proxy)
+	MainWindow.BeginSheetCompletionHandler(panel, creator.Handler)
+}
+
+var (
+	Proxies []Proxy
+	mux     sync.Mutex
+)
+
+func FetchProxies() []Proxy {
+	mux.Lock()
+	defer mux.Unlock()
+	return Proxies
+}
+
+func UpdateProxies(proxy Proxy) {
+	mux.Lock()
+	defer mux.Unlock()
+	if proxy.ID == "" {
+		id, _ := uuid.NewV7()
+		proxy.ID = id.String()
+	}
+	updated := false
+	for i, p := range Proxies {
+		if p.ID == proxy.ID {
+			Proxies = append(Proxies[:i], append([]Proxy{proxy}, Proxies[i+1:]...)...)
+			updated = true
+		}
+	}
+	if !updated {
+		Proxies = append(Proxies, proxy)
+	}
+	saveProxies()
+}
+
+func DeleteProxies(i int) {
+	mux.Lock()
+	defer mux.Unlock()
+	Proxies = append(Proxies[:i], Proxies[i+1:]...)
+	saveProxies()
+}
+
+func saveProxies() {
+	obj, _ := json.Marshal(Proxies)
+	defaults := appkit.UserDefaultsController_SharedUserDefaultsController().Defaults()
+	defaults.SetObjectForKey(foundation.String_StringWithString(string(obj)), "configedProxies")
+}
+
+func LoadProxies() {
+	defaults := appkit.UserDefaultsController_SharedUserDefaultsController().Defaults()
+	obj := defaults.StringForKey("configedProxies")
+	json.Unmarshal([]byte(obj), &Proxies)
 }

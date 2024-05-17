@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/charliego3/proxies/lib"
 	"github.com/charliego3/proxies/utility"
@@ -9,29 +11,21 @@ import (
 	"github.com/progrium/macdriver/macos/appkit"
 	"github.com/progrium/macdriver/macos/foundation"
 	"github.com/progrium/macdriver/objc"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 const sidebarIdentifier = "sidebarDatasourceIdentifier"
 
-var items []objc.Object
-
-func init() {
-	for i := 65; i < 65+26; i++ {
-		items = append(items, foundation.String_StringWithString(fmt.Sprintf("%s -- %d", string(rune(i)), i)).Object)
-	}
-}
-
 type Sidebar struct {
 	appkit.IViewController
-	w       appkit.IWindow
 	view    appkit.IView
 	outline appkit.OutlineView
 	max     appkit.LayoutConstraint
 }
 
-func NewSidebarController(w appkit.IWindow) *Sidebar {
+func NewSidebarController() *Sidebar {
 	sidebar := new(Sidebar)
-	sidebar.w = w
 	sidebar.IViewController = appkit.NewViewController()
 	sidebar.Init()
 	return sidebar
@@ -50,11 +44,31 @@ func (s *Sidebar) Init() {
 	s.outline.AddTableColumn(utility.TableColumn(sidebarIdentifier, ""))
 
 	menu := appkit.NewMenu()
-	menu.AddItem(appkit.NewMenuItemWithAction("Edit", "", func(sender objc.Object) {
-		fmt.Println("clicked edit")
+	menu.AddItem(utility.MenuItem("Toggle State", "togglepower", func(sender objc.Object) {
+		proxy := FetchProxies()[s.outline.ClickedRow()]
+		proxy.InUse = !proxy.InUse
+		UpdateProxies(proxy)
+		s.Update()
 	}))
-	menu.AddItem(appkit.NewMenuItemWithAction("Open", "", func(sender objc.Object) {
-		fmt.Println("clicked open")
+	menu.AddItem(utility.MenuItem("Edit Options", "pencil.line", func(sender objc.Object) {
+		OpenProxySheet("Update options for Proxy:", FetchProxies()[s.outline.ClickedRow()])
+	}))
+	menu.AddItem(utility.MenuItem("Delete Proxy", "trash", func(objc.Object) {
+		index := s.outline.ClickedRow()
+		proxy := FetchProxies()[index]
+		utility.ShowAlert(
+			utility.WithAlertTitle("Are you sure delete this proxy?"),
+			utility.WithAlertMessage(fmt.Sprintf("%s\n%s", cases.Title(language.English).String(proxy.Name), proxy.URL())),
+			utility.WithAlertWindow(MainWindow),
+			utility.WithAlertStyle(appkit.AlertStyleWarning),
+			utility.WithAlertButtons("OK", "Cancel"),
+			utility.WithAlertHandler(func(code appkit.ModalResponse) {
+				if code == appkit.AlertFirstButtonReturn {
+					DeleteProxies(index)
+					s.Update()
+				}
+			}),
+		)
 	}))
 
 	s.outline.SetMenu(menu)
@@ -75,7 +89,7 @@ func (s *Sidebar) Init() {
 
 	s.view = scrollView
 	s.IViewController.SetView(s.view)
-	s.view.SetFrameSize(utility.SizeOf(260, 0))
+	s.view.SetFrameSize(utility.SizeOf(200, 0))
 	layout.SetMinWidth(s.view, 200)
 	s.SetSidebarMaxWidth()
 }
@@ -85,7 +99,11 @@ func (s *Sidebar) setDelegate() {
 	delegate.SetOutlineViewViewForTableColumnItem(s.createColumnItem)
 	delegate.SetControlTextDidBeginEditing(func(obj foundation.Notification) {})
 	delegate.SetOutlineViewHeightOfRowByItem(func(outlineView appkit.OutlineView, item objc.Object) float64 {
-		return 30
+		return 40
+	})
+	delegate.SetOutlineViewSelectionDidChange(func(notification foundation.Notification) {
+		proxy := FetchProxies()[s.outline.SelectedRow()]
+		MainWindow.SetTitle(cases.Title(language.English).String(proxy.Name))
 	})
 	po0 := objc.WrapAsProtocol("NSOutlineViewDelegate", appkit.POutlineViewDelegate(delegate))
 	objc.SetAssociatedObject(s.outline, objc.AssociationKey("setDelegate"), po0, objc.ASSOCIATION_RETAIN)
@@ -95,17 +113,15 @@ func (s *Sidebar) setDelegate() {
 func (s *Sidebar) setDatasource() {
 	datasource := new(lib.OutlineViewDatasource)
 	datasource.SetOutlineViewChildOfItem(func(outlineView appkit.OutlineView, index int, item objc.Object) objc.Object {
-		if item.IsNil() {
-			return items[index]
-		}
-
-		return foundation.StringFrom(item.Ptr()).Object
+		proxy := FetchProxies()[index]
+		return foundation.String_StringWithString(fmt.Sprintf("%s#%s#%t",
+			proxy.Name, proxy.URL(), proxy.InUse)).Object
 	})
 	datasource.SetOutlineViewIsItemExpandable(func(outlineView appkit.OutlineView, item objc.Object) bool {
 		return false
 	})
 	datasource.SetOutlineViewNumberOfChildrenOfItem(func(_ appkit.OutlineView, item objc.Object) int {
-		return len(items)
+		return len(FetchProxies())
 	})
 	appkit.NewTableViewRowAction()
 	po1 := objc.WrapAsProtocol("NSOutlineViewDataSource", appkit.POutlineViewDataSource(datasource))
@@ -114,40 +130,53 @@ func (s *Sidebar) setDatasource() {
 }
 
 func (s *Sidebar) createColumnItem(_ appkit.OutlineView, tableColumn appkit.TableColumn, item objc.Object) appkit.View {
+	content := foundation.StringFrom(item.Ptr())
+	arrs := strings.Split(content.String(), "#")
+	inUse, _ := strconv.ParseBool(arrs[2])
+
+	symbol := "globe.europe.africa"
+	if inUse {
+		symbol += ".fill"
+	}
 	image := appkit.NewImageView()
 	image.SetTranslatesAutoresizingMaskIntoConstraints(false)
-	image.SetImage(utility.SymbolImage("network", utility.ImageLarge))
+	image.SetImage(utility.SymbolImage(symbol, utility.ImageLarge))
 
-	text := appkit.NewTextField()
-	text.SetBordered(false)
-	text.SetBezelStyle(appkit.TextFieldSquareBezel)
-	text.SetEditable(false)
-	text.SetDrawsBackground(false)
+	text := appkit.NewLabel(cases.Title(language.English).String(arrs[0]))
 	text.SetTranslatesAutoresizingMaskIntoConstraints(false)
-	text.SetStringValue(foundation.StringFrom(item.Ptr()).CapitalizedString())
+	url := appkit.NewTextField()
+	url.SetBordered(false)
+	url.SetEditable(false)
+	url.SetDrawsBackground(false)
+	url.SetTranslatesAutoresizingMaskIntoConstraints(false)
+	url.SetAttributedStringValue(foundation.NewAttributedStringWithStringAttributes(
+		strings.ToLower(arrs[1]), map[foundation.AttributedStringKey]objc.IObject{
+			"NSColor": appkit.Color_SecondaryLabelColor(),
+			"NSFont":  appkit.Font_LabelFontOfSize(10),
+		}))
 
-	// onoff := appkit.NewButton()
-	// onoff.SetButtonType(appkit.ButtonTypeToggle)
-	// onoff.SetTranslatesAutoresizingMaskIntoConstraints(false)
-	// onoff.SetState(appkit.ControlStateValueOn)
+	info := appkit.NewView()
+	info.SetTranslatesAutoresizingMaskIntoConstraints(false)
+	info.AddSubview(text)
+	info.AddSubview(url)
+	layout.AliginLeading(text, info)
+	layout.AliginTop(text, info)
+	layout.AliginTrailing(text, info)
+	layout.PinAnchorTo(url.TopAnchor(), text.BottomAnchor(), 0)
+	layout.AliginLeading(url, info)
+	layout.AliginTrailing(url, info)
+	layout.AliginBottom(url, info)
 
 	rowView := appkit.NewTableRowView()
 	rowView.AddSubview(image)
-	rowView.AddSubview(text)
-	// rowView.AddSubview(onoff)
+	rowView.AddSubview(info)
 
 	layout.AliginLeading(image, rowView)
 	layout.AliginCenterY(image, rowView)
-	layout.PinAnchorTo(text.LeadingAnchor(), image.TrailingAnchor(), 5)
-	layout.AliginCenterY(text, rowView)
-	// image.LeadingAnchor().ConstraintEqualToAnchor(rowView.LeadingAnchor()).SetActive(true)
-	// image.CenterYAnchor().ConstraintEqualToAnchor(rowView.CenterYAnchor()).SetActive(true)
-	// text.LeadingAnchor().ConstraintEqualToAnchorConstant(image.TrailingAnchor(), 3).SetActive(true)
-	// text.TrailingAnchor().ConstraintEqualToAnchor(rowView.TrailingAnchor()).SetActive(true)
-	// text.CenterYAnchor().ConstraintEqualToAnchor(rowView.CenterYAnchor()).SetActive(true)
-	// layout.AliginCenterY(onoff, rowView)
-	// layout.PinAnchorTo(onoff.LeadingAnchor(), text.TrailingAnchor(), 5)
-	// layout.PinAnchorTo(onoff.TrailingAnchor(), rowView.TrailingAnchor(), 1)
+	layout.SetWidth(image, 20)
+	layout.PinAnchorTo(info.LeadingAnchor(), image.TrailingAnchor(), 5)
+	layout.AliginCenterY(info, rowView)
+	layout.AliginTrailing(info, rowView)
 	return rowView.View
 }
 
@@ -155,6 +184,19 @@ func (s *Sidebar) SetSidebarMaxWidth() {
 	if !s.max.IsNil() {
 		s.max.SetActive(false)
 	}
-	s.max = s.view.WidthAnchor().ConstraintLessThanOrEqualToConstant(s.w.Frame().Size.Width / 2)
+	s.max = s.view.WidthAnchor().ConstraintLessThanOrEqualToConstant(MainWindow.Frame().Size.Width / 2)
 	s.max.SetActive(true)
+}
+
+func (s *Sidebar) Update() {
+	row := s.outline.SelectedRow()
+	if row < 0 {
+		row = 0
+	}
+	proxies := FetchProxies()
+	if row >= len(proxies) {
+		row = len(proxies) - 1
+	}
+	s.outline.ReloadData()
+	s.outline.SelectRowIndexesByExtendingSelection(foundation.NewIndexSetWithIndex(uint(row)), true)
 }

@@ -1,8 +1,10 @@
 package utility
 
 import (
+	"github.com/progrium/macdriver/helper/action"
 	"github.com/progrium/macdriver/helper/layout"
 	"github.com/progrium/macdriver/macos/appkit"
+	"github.com/progrium/macdriver/objc"
 )
 
 func Controller(view appkit.IView) appkit.ViewController {
@@ -76,9 +78,18 @@ func TableColumn(identifier appkit.UserInterfaceItemIdentifier, title string) ap
 	return column
 }
 
+func MenuItem(title, icon string, handler func(objc.Object)) appkit.MenuItem {
+	item := appkit.NewMenuItem()
+	item.SetTitle(title)
+	item.SetImage(SymbolImage(icon))
+	action.Set(item, handler)
+	return item
+}
+
 // Alert Options
 
 type alertOpts struct {
+	w               appkit.IWindow
 	style           appkit.AlertStyle
 	title           string
 	message         string
@@ -89,6 +100,7 @@ type alertOpts struct {
 	helpAnchor      appkit.HelpAnchorName
 	buttons         []string
 	onhelp          func(appkit.Alert) bool
+	handler         func(returnCode appkit.ModalResponse)
 }
 
 type AlertOption func(*alertOpts)
@@ -153,11 +165,26 @@ func WithAlertButtons(buttons ...string) AlertOption {
 	}
 }
 
-func ShowAlert(opts ...AlertOption) appkit.ModalResponse {
+func WithAlertWindow(w appkit.IWindow) AlertOption {
+	return func(ao *alertOpts) {
+		ao.w = w
+	}
+}
+
+func WithAlertHandler(h func(returnCode appkit.ModalResponse)) AlertOption {
+	return func(ao *alertOpts) {
+		ao.handler = h
+	}
+}
+
+func ShowAlert(opts ...AlertOption) {
 	opt := new(alertOpts)
 	opt.style = appkit.AlertStyleInformational
 	for _, f := range opts {
 		f(opt)
+	}
+	if opt.handler == nil {
+		opt.handler = func(returnCode appkit.ModalResponse) {}
 	}
 	dialog := appkit.NewAlert()
 	dialog.SetAlertStyle(opt.style)
@@ -179,5 +206,9 @@ func ShowAlert(opts ...AlertOption) appkit.ModalResponse {
 	for _, title := range opt.buttons {
 		dialog.AddButtonWithTitle(title)
 	}
-	return dialog.RunModal()
+	if opt.w == nil || opt.w.IsNil() {
+		opt.handler(dialog.RunModal())
+	} else {
+		dialog.BeginSheetModalForWindowCompletionHandler(opt.w, opt.handler)
+	}
 }

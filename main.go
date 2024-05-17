@@ -10,7 +10,7 @@ import (
 	"github.com/progrium/macdriver/objc"
 )
 
-var windowFrame = utility.SizeOf(700, 500)
+var windowFrame = utility.SizeOf(600, 500)
 
 type App struct {
 	appkit.Application
@@ -21,8 +21,18 @@ func newApp() *App {
 	return &App{app}
 }
 
+type ProxyWindow struct {
+	appkit.Window
+
+	Sidebar *Sidebar
+}
+
+var MainWindow ProxyWindow
+
 func (app *App) launching(foundation.Notification) {
-	w := appkit.NewWindowWithSizeAndStyle(
+	LoadProxies()
+	MainWindow = ProxyWindow{}
+	MainWindow.Window = appkit.NewWindowWithSizeAndStyle(
 		windowFrame.Width, windowFrame.Height,
 		appkit.WindowStyleMaskTitled|
 			appkit.WindowStyleMaskClosable|
@@ -30,7 +40,7 @@ func (app *App) launching(foundation.Notification) {
 			appkit.WindowStyleMaskResizable|
 			appkit.WindowStyleMaskFullSizeContentView,
 	)
-	objc.Retain(&w)
+	objc.Retain(&MainWindow)
 
 	grid := appkit.GridView_GridViewWithViews([][]appkit.IView{
 		{
@@ -49,32 +59,35 @@ func (app *App) launching(foundation.Notification) {
 	layout.AliginCenterX(grid, v)
 	layout.AliginCenterY(grid, v)
 
-	sidebarController := NewSidebarController(w)
+	MainWindow.Sidebar = NewSidebarController()
 	controller := appkit.NewSplitViewController()
 	controller.SetSplitViewItems([]appkit.ISplitViewItem{
-		appkit.SplitViewItem_SidebarWithViewController(sidebarController),
-		appkit.SplitViewItem_SplitViewItemWithViewController(
-			utility.Controller(v)),
+		appkit.SplitViewItem_SidebarWithViewController(MainWindow.Sidebar),
+		appkit.SplitViewItem_SplitViewItemWithViewController(utility.Controller(v)),
 	})
 
 	delegate := new(appkit.WindowDelegate)
 	delegate.SetWindowDidEndLiveResize(func(notification foundation.Notification) {
-		sidebarController.SetSidebarMaxWidth()
+		MainWindow.Sidebar.SetSidebarMaxWidth()
 	})
 
-	w.SetDelegate(delegate)
-	w.SetTitlebarSeparatorStyle(appkit.TitlebarSeparatorStyleShadow)
-	w.SetToolbarStyle(appkit.WindowToolbarStyleUnifiedCompact)
-	w.SetTitlebarAppearsTransparent(false)
-	w.SetToolbar(createToolbar(w, controller))
-	w.SetContentViewController(controller)
-	w.SetContentSize(windowFrame)
-	w.SetContentMinSize(windowFrame)
-	w.SetTitle("Proxy Tools")
-	w.Center()
-	w.MakeKeyAndOrderFront(nil)
+	MainWindow.SetDelegate(delegate)
+	MainWindow.SetTitlebarSeparatorStyle(appkit.TitlebarSeparatorStyleShadow)
+	MainWindow.SetToolbarStyle(appkit.WindowToolbarStyleUnifiedCompact)
+	MainWindow.SetTitlebarAppearsTransparent(false)
+	MainWindow.SetToolbar(createToolbar(controller))
+	MainWindow.SetContentViewController(controller)
+	MainWindow.SetContentSize(windowFrame)
+	MainWindow.SetContentMinSize(windowFrame)
+	MainWindow.Center()
+	MainWindow.MakeKeyAndOrderFront(nil)
 	app.SetActivationPolicy(appkit.ApplicationActivationPolicyRegular)
 	app.ActivateIgnoringOtherApps(true)
+
+	if len(FetchProxies()) == 0 {
+		MainWindow.SetTitle("Proxies")
+		OpenNewProxySheet()
+	}
 }
 
 func (app *App) setMainMenu(foundation.Notification) {
