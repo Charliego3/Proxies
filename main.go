@@ -4,7 +4,6 @@ import (
 	"runtime"
 
 	"github.com/charliego3/proxies/utility"
-	"github.com/progrium/macdriver/helper/layout"
 	"github.com/progrium/macdriver/macos/appkit"
 	"github.com/progrium/macdriver/macos/foundation"
 	"github.com/progrium/macdriver/objc"
@@ -25,6 +24,7 @@ type ProxyWindow struct {
 	appkit.Window
 
 	Sidebar *Sidebar
+	Rules   *Rules
 }
 
 var MainWindow ProxyWindow
@@ -42,28 +42,12 @@ func (app *App) launching(foundation.Notification) {
 	)
 	objc.Retain(&MainWindow)
 
-	grid := appkit.GridView_GridViewWithViews([][]appkit.IView{
-		{
-			appkit.NewLabel("Proxy name"),
-			appkit.NewTextField(),
-		},
-		{
-			appkit.NewLabel("Proxy Type"),
-			appkit.NewTextField(),
-		},
-	})
-	grid.SetTranslatesAutoresizingMaskIntoConstraints(false)
-	v := appkit.NewViewWithFrame(utility.RectOf(utility.SizeOf(340, 300)))
-	v.AddSubview(grid)
-	layout.SetMinWidth(grid, 300)
-	layout.AliginCenterX(grid, v)
-	layout.AliginCenterY(grid, v)
-
 	MainWindow.Sidebar = NewSidebarController()
+	MainWindow.Rules = NewRulesViewController()
 	controller := appkit.NewSplitViewController()
 	controller.SetSplitViewItems([]appkit.ISplitViewItem{
 		appkit.SplitViewItem_SidebarWithViewController(MainWindow.Sidebar),
-		appkit.SplitViewItem_SplitViewItemWithViewController(utility.Controller(v)),
+		appkit.SplitViewItem_SplitViewItemWithViewController(MainWindow.Rules),
 	})
 
 	delegate := new(appkit.WindowDelegate)

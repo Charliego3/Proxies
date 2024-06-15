@@ -198,6 +198,7 @@ func (c Creator) Init(title string, proxy Proxy) {
 		proxy.Password = passi.StringValue()
 		UpdateProxies(proxy)
 		MainWindow.Sidebar.Update()
+		MainWindow.Sidebar.ScrollToBottom()
 		MainWindow.EndSheetReturnCode(c.p, appkit.ModalResponseOK)
 	})
 }

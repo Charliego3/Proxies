@@ -24,3 +24,11 @@ func (p Proxy) URL() string {
 func NewProxy() Proxy {
 	return Proxy{Type: "HTTP"}
 }
+
+type Rule struct {
+	N string
+	T bool
+	R string
+}
+
+var RuleDataSource = make(map[string]*Rule)

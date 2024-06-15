@@ -48,7 +48,9 @@ func (s *Sidebar) Init() {
 		proxy := FetchProxies()[s.outline.ClickedRow()]
 		proxy.InUse = !proxy.InUse
 		UpdateProxies(proxy)
+		selected := s.outline.SelectedRow()
 		s.Update()
+		s.SelectRow(selected)
 	}))
 	menu.AddItem(utility.MenuItem("Edit Options", "pencil.line", func(sender objc.Object) {
 		OpenProxySheet("Update options for Proxy:", FetchProxies()[s.outline.ClickedRow()])
@@ -66,6 +68,7 @@ func (s *Sidebar) Init() {
 				if code == appkit.AlertFirstButtonReturn {
 					DeleteProxies(index)
 					s.Update()
+					s.SelectRow(s.outline.NumberOfRows() - 1)
 				}
 			}),
 		)
@@ -74,13 +77,13 @@ func (s *Sidebar) Init() {
 	s.outline.SetMenu(menu)
 	s.setDelegate()
 	s.setDatasource()
+	s.SelectRow(0)
 	scrollView := appkit.NewScrollView()
 	clipView := appkit.ClipViewFrom(scrollView.ContentView().Ptr())
 	clipView.SetDocumentView(s.outline)
 	clipView.SetAutomaticallyAdjustsContentInsets(false)
 	clipView.SetContentInsets(foundation.EdgeInsets{Top: 10})
 
-	s.outline.SelectRowIndexesByExtendingSelection(foundation.NewIndexSetWithIndex(0), true)
 	scrollView.SetBorderType(appkit.NoBorder)
 	scrollView.SetDrawsBackground(false)
 	scrollView.SetAutohidesScrollers(true)
@@ -198,5 +201,14 @@ func (s *Sidebar) Update() {
 		row = len(proxies) - 1
 	}
 	s.outline.ReloadData()
+}
+
+func (s *Sidebar) ScrollToBottom() {
+	rows := s.outline.NumberOfRows()
+	s.outline.ScrollRowToVisible(s.outline.NumberOfRows() - 1)
+	s.SelectRow(rows - 1)
+}
+
+func (s *Sidebar) SelectRow(row int) {
 	s.outline.SelectRowIndexesByExtendingSelection(foundation.NewIndexSetWithIndex(uint(row)), true)
 }
