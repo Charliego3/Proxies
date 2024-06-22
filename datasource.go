@@ -1,4 +1,4 @@
-package lib
+package main
 
 import (
 	"github.com/progrium/macdriver/macos/appkit"

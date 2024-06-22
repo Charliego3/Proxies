@@ -9,7 +9,10 @@ import (
 	"github.com/progrium/macdriver/objc"
 )
 
-var windowFrame = utility.SizeOf(600, 500)
+var (
+	windowFrame = utility.SizeOf(600, 500)
+	defaults    = appkit.UserDefaultsController_SharedUserDefaultsController().Defaults()
+)
 
 type App struct {
 	appkit.Application
@@ -24,15 +27,14 @@ type ProxyWindow struct {
 	appkit.Window
 
 	Sidebar *Sidebar
-	Rules   *Rules
+	Rules   *RuleView
 }
 
-var MainWindow ProxyWindow
+var Window ProxyWindow
 
 func (app *App) launching(foundation.Notification) {
-	LoadProxies()
-	MainWindow = ProxyWindow{}
-	MainWindow.Window = appkit.NewWindowWithSizeAndStyle(
+	Window = ProxyWindow{}
+	Window.Window = appkit.NewWindowWithSizeAndStyle(
 		windowFrame.Width, windowFrame.Height,
 		appkit.WindowStyleMaskTitled|
 			appkit.WindowStyleMaskClosable|
@@ -40,36 +42,36 @@ func (app *App) launching(foundation.Notification) {
 			appkit.WindowStyleMaskResizable|
 			appkit.WindowStyleMaskFullSizeContentView,
 	)
-	objc.Retain(&MainWindow)
+	objc.Retain(&Window)
 
-	MainWindow.Sidebar = NewSidebarController()
-	MainWindow.Rules = NewRulesViewController()
+	Window.Sidebar = NewSidebarController()
+	Window.Rules = NewRulesViewController()
 	controller := appkit.NewSplitViewController()
 	controller.SetSplitViewItems([]appkit.ISplitViewItem{
-		appkit.SplitViewItem_SidebarWithViewController(MainWindow.Sidebar),
-		appkit.SplitViewItem_SplitViewItemWithViewController(MainWindow.Rules),
+		appkit.SplitViewItem_SidebarWithViewController(Window.Sidebar),
+		appkit.SplitViewItem_SplitViewItemWithViewController(Window.Rules),
 	})
 
 	delegate := new(appkit.WindowDelegate)
 	delegate.SetWindowDidEndLiveResize(func(notification foundation.Notification) {
-		MainWindow.Sidebar.SetSidebarMaxWidth()
+		Window.Sidebar.SetSidebarMaxWidth()
 	})
 
-	MainWindow.SetDelegate(delegate)
-	MainWindow.SetTitlebarSeparatorStyle(appkit.TitlebarSeparatorStyleShadow)
-	MainWindow.SetToolbarStyle(appkit.WindowToolbarStyleUnifiedCompact)
-	MainWindow.SetTitlebarAppearsTransparent(false)
-	MainWindow.SetToolbar(createToolbar(controller))
-	MainWindow.SetContentViewController(controller)
-	MainWindow.SetContentSize(windowFrame)
-	MainWindow.SetContentMinSize(windowFrame)
-	MainWindow.Center()
-	MainWindow.MakeKeyAndOrderFront(nil)
+	Window.SetDelegate(delegate)
+	Window.SetTitlebarSeparatorStyle(appkit.TitlebarSeparatorStyleShadow)
+	Window.SetToolbarStyle(appkit.WindowToolbarStyleUnifiedCompact)
+	Window.SetTitlebarAppearsTransparent(false)
+	Window.SetToolbar(createToolbar(controller))
+	Window.SetContentViewController(controller)
+	Window.SetContentSize(windowFrame)
+	Window.SetContentMinSize(windowFrame)
+	Window.Center()
+	Window.MakeKeyAndOrderFront(nil)
 	app.SetActivationPolicy(appkit.ApplicationActivationPolicyRegular)
 	app.ActivateIgnoringOtherApps(true)
 
-	if len(FetchProxies()) == 0 {
-		MainWindow.SetTitle("Proxies")
+	if proxies.Length() == 0 {
+		Window.SetTitle("Proxies")
 		OpenNewProxySheet()
 	}
 }

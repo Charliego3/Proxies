@@ -15,5 +15,12 @@
         // * `always` — always show the terminal pane, add and focus the corresponding task's tab in it (default)
         // * `never` — avoid changing current terminal pane focus, but still add/reuse the task's tab there
         "reveal": "always"
+    },
+    {
+        "label": "Open Proxy",
+        "command": "go run ./proxy",
+        "use_new_terminal": false,
+        "allow_concurrent_runs": false,
+        "reveal": "always"
     }
 ]

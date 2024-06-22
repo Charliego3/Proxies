@@ -1,11 +1,12 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 
-	"github.com/charliego3/proxies/lib"
 	"github.com/charliego3/proxies/utility"
 	"github.com/progrium/macdriver/helper/layout"
 	"github.com/progrium/macdriver/macos/appkit"
@@ -15,7 +16,23 @@ import (
 	"golang.org/x/text/language"
 )
 
-const sidebarIdentifier = "sidebarDatasourceIdentifier"
+const (
+	sidebarIdentifier = "sidebarDatasourceIdentifier"
+
+	proxyDefaultsKey = "proxiesKey"
+)
+
+var proxies = new(ProxyDatasource)
+
+func init() {
+	proxies.mux = new(sync.RWMutex)
+	proxyvalue := defaults.StringForKey(proxyDefaultsKey)
+	if proxyvalue == "" {
+		return
+	}
+
+	json.Unmarshal([]byte(proxyvalue), &proxies.proxies)
+}
 
 type Sidebar struct {
 	appkit.IViewController
@@ -45,28 +62,28 @@ func (s *Sidebar) Init() {
 
 	menu := appkit.NewMenu()
 	menu.AddItem(utility.MenuItem("Toggle State", "togglepower", func(sender objc.Object) {
-		proxy := FetchProxies()[s.outline.ClickedRow()]
+		proxy := proxies.ByIndex(s.outline.ClickedRow())
 		proxy.InUse = !proxy.InUse
-		UpdateProxies(proxy)
+		proxies.Update(proxy)
 		selected := s.outline.SelectedRow()
 		s.Update()
 		s.SelectRow(selected)
 	}))
 	menu.AddItem(utility.MenuItem("Edit Options", "pencil.line", func(sender objc.Object) {
-		OpenProxySheet("Update options for Proxy:", FetchProxies()[s.outline.ClickedRow()])
+		OpenProxySheet("Update options for Proxy:", proxies.ByIndex(s.outline.ClickedRow()))
 	}))
 	menu.AddItem(utility.MenuItem("Delete Proxy", "trash", func(objc.Object) {
 		index := s.outline.ClickedRow()
-		proxy := FetchProxies()[index]
+		proxy := proxies.ByIndex(index)
 		utility.ShowAlert(
 			utility.WithAlertTitle("Are you sure delete this proxy?"),
 			utility.WithAlertMessage(fmt.Sprintf("%s\n%s", cases.Title(language.English).String(proxy.Name), proxy.URL())),
-			utility.WithAlertWindow(MainWindow),
+			utility.WithAlertWindow(Window),
 			utility.WithAlertStyle(appkit.AlertStyleWarning),
 			utility.WithAlertButtons("OK", "Cancel"),
 			utility.WithAlertHandler(func(code appkit.ModalResponse) {
 				if code == appkit.AlertFirstButtonReturn {
-					DeleteProxies(index)
+					proxies.Delete(index)
 					s.Update()
 					s.SelectRow(s.outline.NumberOfRows() - 1)
 				}
@@ -105,8 +122,8 @@ func (s *Sidebar) setDelegate() {
 		return 40
 	})
 	delegate.SetOutlineViewSelectionDidChange(func(notification foundation.Notification) {
-		proxy := FetchProxies()[s.outline.SelectedRow()]
-		MainWindow.SetTitle(cases.Title(language.English).String(proxy.Name))
+		proxy := proxies.ByIndex(s.outline.SelectedRow())
+		Window.SetTitle(cases.Title(language.English).String(proxy.Name))
 	})
 	po0 := objc.WrapAsProtocol("NSOutlineViewDelegate", appkit.POutlineViewDelegate(delegate))
 	objc.SetAssociatedObject(s.outline, objc.AssociationKey("setDelegate"), po0, objc.ASSOCIATION_RETAIN)
@@ -114,9 +131,9 @@ func (s *Sidebar) setDelegate() {
 }
 
 func (s *Sidebar) setDatasource() {
-	datasource := new(lib.OutlineViewDatasource)
+	datasource := new(OutlineViewDatasource)
 	datasource.SetOutlineViewChildOfItem(func(outlineView appkit.OutlineView, index int, item objc.Object) objc.Object {
-		proxy := FetchProxies()[index]
+		proxy := proxies.ByIndex(index)
 		return foundation.String_StringWithString(fmt.Sprintf("%s#%s#%t",
 			proxy.Name, proxy.URL(), proxy.InUse)).Object
 	})
@@ -124,7 +141,7 @@ func (s *Sidebar) setDatasource() {
 		return false
 	})
 	datasource.SetOutlineViewNumberOfChildrenOfItem(func(_ appkit.OutlineView, item objc.Object) int {
-		return len(FetchProxies())
+		return proxies.Length()
 	})
 	appkit.NewTableViewRowAction()
 	po1 := objc.WrapAsProtocol("NSOutlineViewDataSource", appkit.POutlineViewDataSource(datasource))
@@ -187,7 +204,7 @@ func (s *Sidebar) SetSidebarMaxWidth() {
 	if !s.max.IsNil() {
 		s.max.SetActive(false)
 	}
-	s.max = s.view.WidthAnchor().ConstraintLessThanOrEqualToConstant(MainWindow.Frame().Size.Width / 2)
+	s.max = s.view.WidthAnchor().ConstraintLessThanOrEqualToConstant(Window.Frame().Size.Width / 2)
 	s.max.SetActive(true)
 }
 
@@ -196,9 +213,9 @@ func (s *Sidebar) Update() {
 	if row < 0 {
 		row = 0
 	}
-	proxies := FetchProxies()
-	if row >= len(proxies) {
-		row = len(proxies) - 1
+	length := proxies.Length()
+	if row >= length {
+		row = length - 1
 	}
 	s.outline.ReloadData()
 }
@@ -211,4 +228,12 @@ func (s *Sidebar) ScrollToBottom() {
 
 func (s *Sidebar) SelectRow(row int) {
 	s.outline.SelectRowIndexesByExtendingSelection(foundation.NewIndexSetWithIndex(uint(row)), true)
+}
+
+func (s *Sidebar) SelectedIndex() int {
+	return s.outline.SelectedRow()
+}
+
+func (s *Sidebar) SelectedId() string {
+	return proxies.ByIndex(s.SelectedIndex()).ID
 }

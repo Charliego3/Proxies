@@ -27,17 +27,6 @@ func main() {
 		// }
 		return proxy.NewConnectDialToProxy(https_proxy)(network, addr)
 	}
-	proxy.OnResponse(goproxy.RespConditionFunc(func(resp *http.Response, ctx *goproxy.ProxyCtx) bool {
-		return true
-	})).Do(goproxy.FuncRespHandler(func(resp *http.Response, ctx *goproxy.ProxyCtx) *http.Response {
-		fmt.Println("OnResponse:", resp.Status, ctx.Error)
-		return resp
-	}))
-	proxy.OnRequest(goproxy.ReqConditionFunc(func(req *http.Request, ctx *goproxy.ProxyCtx) bool {
-		return true
-	})).Do(goproxy.FuncReqHandler(func(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
-		fmt.Println("OnRequest:", req.URL.String(), ctx.Resp)
-		return req, ctx.Resp
-	}))
+	fmt.Println("listen and serve on 127.0.0.1:49557")
 	fmt.Println(http.ListenAndServe(":49557", proxy))
 }

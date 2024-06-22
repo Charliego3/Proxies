@@ -1,19 +1,15 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/charliego3/proxies/utility"
-	"github.com/google/uuid"
 	"github.com/progrium/macdriver/helper/action"
 	"github.com/progrium/macdriver/helper/layout"
 	"github.com/progrium/macdriver/macos/appkit"
-	"github.com/progrium/macdriver/macos/foundation"
 	"github.com/progrium/macdriver/objc"
 )
 
@@ -37,7 +33,7 @@ func (c Creator) Init(title string, proxy Proxy) {
 	cancel := appkit.NewPushButton("Cancel")
 	cancel.SetBezelStyle(appkit.BezelStyleRounded)
 	cancel.SetTranslatesAutoresizingMaskIntoConstraints(false)
-	action.Set(cancel, func(sender objc.Object) { MainWindow.EndSheet(c.p) })
+	action.Set(cancel, func(sender objc.Object) { Window.EndSheet(c.p) })
 	c.AddSubview(cancel)
 	layout.SetMinWidth(cancel, 100)
 	layout.PinAnchorTo(cancel.LeadingAnchor(), c.LeadingAnchor(), 20)
@@ -73,7 +69,7 @@ func (c Creator) Init(title string, proxy Proxy) {
 		"HTTP",
 		"HTTPS",
 	})
-	types.SelectItemWithTitle(proxy.Type)
+	types.SelectItemWithTitle(proxy.Schema)
 	types.SetTranslatesAutoresizingMaskIntoConstraints(false)
 	layout.SetMinWidth(types, 250)
 	namei := appkit.NewTextField()
@@ -157,8 +153,8 @@ func (c Creator) Init(title string, proxy Proxy) {
 		ok.SetEnabled(false)
 		showWaring := func(message string) {
 			utility.ShowAlert(
-				utility.WithAlertTitle("Options are invalid"),
-				utility.WithAlertMessage(message),
+				utility.WithAlertTitle("Oops!"),
+				utility.WithAlertMessage("Options are invalid: "+message),
 				utility.WithAlertWindow(c.p),
 				utility.WithAlertStyle(appkit.AlertStyleWarning),
 			)
@@ -190,16 +186,16 @@ func (c Creator) Init(title string, proxy Proxy) {
 			return
 		}
 		proxy.Name = name
-		proxy.Type = schema
+		proxy.Schema = schema
 		proxy.Host = host
 		proxy.Port, _ = strconv.Atoi(port)
 		proxy.Auth = authentication.TitleOfSelectedItem() == authed
 		proxy.Username = unamei.StringValue()
 		proxy.Password = passi.StringValue()
-		UpdateProxies(proxy)
-		MainWindow.Sidebar.Update()
-		MainWindow.Sidebar.ScrollToBottom()
-		MainWindow.EndSheetReturnCode(c.p, appkit.ModalResponseOK)
+		proxies.Update(proxy)
+		Window.Sidebar.Update()
+		Window.Sidebar.ScrollToBottom()
+		Window.EndSheetReturnCode(c.p, appkit.ModalResponseOK)
 	})
 }
 
@@ -212,57 +208,8 @@ func OpenProxySheet(title string, proxy Proxy) {
 			appkit.WindowStyleMaskFullSizeContentView,
 	)
 
+	panel.SetMenu(appkit.NewMenuWithTitle("title string"))
 	creator := NewCreator(panel)
 	creator.Init(title, proxy)
-	MainWindow.BeginSheetCompletionHandler(panel, creator.Handler)
-}
-
-var (
-	Proxies []Proxy
-	mux     sync.Mutex
-)
-
-func FetchProxies() []Proxy {
-	mux.Lock()
-	defer mux.Unlock()
-	return Proxies
-}
-
-func UpdateProxies(proxy Proxy) {
-	mux.Lock()
-	defer mux.Unlock()
-	if proxy.ID == "" {
-		id, _ := uuid.NewV7()
-		proxy.ID = id.String()
-	}
-	updated := false
-	for i, p := range Proxies {
-		if p.ID == proxy.ID {
-			Proxies = append(Proxies[:i], append([]Proxy{proxy}, Proxies[i+1:]...)...)
-			updated = true
-		}
-	}
-	if !updated {
-		Proxies = append(Proxies, proxy)
-	}
-	saveProxies()
-}
-
-func DeleteProxies(i int) {
-	mux.Lock()
-	defer mux.Unlock()
-	Proxies = append(Proxies[:i], Proxies[i+1:]...)
-	saveProxies()
-}
-
-func saveProxies() {
-	obj, _ := json.Marshal(Proxies)
-	defaults := appkit.UserDefaultsController_SharedUserDefaultsController().Defaults()
-	defaults.SetObjectForKey(foundation.String_StringWithString(string(obj)), "configedProxies")
-}
-
-func LoadProxies() {
-	defaults := appkit.UserDefaultsController_SharedUserDefaultsController().Defaults()
-	obj := defaults.StringForKey("configedProxies")
-	json.Unmarshal([]byte(obj), &Proxies)
+	Window.BeginSheetCompletionHandler(panel, creator.Handler)
 }

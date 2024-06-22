@@ -34,8 +34,7 @@ func (t Toolbar) identifiers(appkit.Toolbar) []appkit.ToolbarItemIdentifier {
 		appkit.ToolbarFlexibleSpaceItemIdentifier,
 		ToolbarAddProxyButtonIdentifier,
 		appkit.ToolbarSidebarTrackingSeparatorItemIdentifier,
-		appkit.ToolbarFlexibleSpaceItemIdentifier,
-		appkit.ToolbarFlexibleSpaceItemIdentifier,
+		// appkit.ToolbarFlexibleSpaceItemIdentifier,
 	}
 }
 
