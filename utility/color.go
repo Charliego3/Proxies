@@ -7,6 +7,10 @@ import (
 	"github.com/progrium/macdriver/macos/foundation"
 )
 
+func ImageHierarchical() appkit.ImageSymbolConfiguration {
+	return appkit.ImageSymbolConfiguration_ConfigurationWithHierarchicalColor(appkit.Color_WhiteColor())
+}
+
 func IsDark() bool {
 	effected := appkit.Application_SharedApplication().EffectiveAppearance()
 	return effected.BestMatchFromAppearancesWithNames([]appkit.AppearanceName{

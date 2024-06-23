@@ -100,7 +100,6 @@ func (app *App) setupSystemBar() {
 	status := appkit.StatusBar_SystemStatusBar().StatusItemWithLength(appkit.VariableStatusItemLength)
 	status.Button().SetImage(utility.SymbolImage("globe.asia.australia"+utility.Ternary(proxies.AnyUsing(), ".fill", ""), utility.ImageLarge))
 	objc.Retain(&status)
-	app.status = status
 
 	var showTitled bool
 	delegate := new(appkit.MenuDelegate)
@@ -122,19 +121,29 @@ func (app *App) setupSystemBar() {
 				utility.Ternary(p.InUse, utility.ColorHex("#1DAD03"), utility.ColorHex("#871313")))))
 			submenu := appkit.NewMenu()
 			for _, r := range rules.FetchWithProxy(p.ID) {
-				submenu.AddItem(utility.MenuItem(r.P, utility.Ternary(r.T, "circle.circle.fill", "circle.circle"), func(objc.Object) {
-
-				}))
+				submenu.AddItem(utility.MenuItem(r.P,
+					utility.Ternary(r.T, "circle.circle.fill", "circle.circle"),
+					func(objc.Object) {}))
 			}
 			item.SetSubmenu(submenu)
 			menu.AddItem(item)
 		}
 
 		menu.AddItem(appkit.MenuItem_SeparatorItem())
-		menu.AddItem(utility.MenuItem(utility.Ternary(showTitled, "Hide Title", "Show Title"), "note.text", func(o objc.Object) {
-			showTitled = !showTitled
-			app.status.Button().SetTitle(utility.Ternary(showTitled, "Proxies", ""))
-		}))
+		label = appkit.NewMenuItem()
+		label.SetAttributedTitle(foundation.NewAttributedStringWithStringAttributes("Server", utility.FontAttribute(15)))
+		menu.AddItem(label)
+		menu.AddItem(utility.MenuItem("Http: "+server.httpListener.Addr().String(), "infinity", func(objc.Object) {}))
+		menu.AddItem(utility.MenuItem("Socks: "+server.sockListener.Addr().String(), "infinity", func(objc.Object) {}))
+
+		menu.AddItem(appkit.MenuItem_SeparatorItem())
+		menu.AddItem(utility.MenuItem(
+			utility.Ternary(showTitled, "Hide Title", "Show Title"),
+			utility.Ternary(showTitled, "text.bubble", "text.bubble.fill"),
+			func(o objc.Object) {
+				showTitled = !showTitled
+				status.Button().SetTitle(utility.Ternary(showTitled, "Proxies", ""))
+			}))
 		menu.AddItem(utility.MenuItem("Open Window", "text.and.command.macwindow", app.launchWindow))
 		menu.AddItem(appkit.MenuItem_SeparatorItem())
 		menu.AddItem(utility.MenuItem("Hide", "eye.fill", utility.Ternary(Window == nil, nil, func(objc.Object) { app.Hide(nil) })))
@@ -143,7 +152,8 @@ func (app *App) setupSystemBar() {
 
 	menu := appkit.NewMenuWithTitle("main")
 	menu.SetDelegate(delegate)
-	app.status.SetMenu(menu)
+	status.SetMenu(menu)
+	app.status = status
 }
 
 func (app *App) setMainMenu(foundation.Notification) {

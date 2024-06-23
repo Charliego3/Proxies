@@ -47,52 +47,41 @@ func (r *RuleView) Init() *RuleView {
 	r.AddTableColumn(createTableColumn(colStateIdentifier, "Remark"))
 
 	menu := appkit.NewMenu()
-	menu.AddItem(utility.MenuItem("New Rule", "plus.rectangle", func(objc.Object) {
-		rules.Add(Rule{T: true})
-		lastIndex := rules.LastIndex()
-		r.ReloadData()
-		r.ScrollRowToVisible(lastIndex)
-		r.SelectRowIndexesByExtendingSelection(foundation.NewIndexSetWithIndex(uint(lastIndex)), true)
-		dispatch.MainQueue().DispatchAsync(func() {
-			text := appkit.TextFieldFrom(lastptr)
-			if !text.IsNil() {
-				text.BecomeFirstResponder()
-			}
-		})
-	}, appkit.ImageSymbolConfiguration_ConfigurationPreferringMulticolor()))
-	r.titem = utility.MenuItem("Switch State", "bolt", func(objc.Object) {
-		rule := rules.ByIndex(r.ClickedRow())
-		rule.T = !rule.T
-		rules.Update(rule)
-		r.ReloadData()
-	}, appkit.ImageSymbolConfiguration_ConfigurationWithPaletteColors([]appkit.IColor{
-		appkit.Color_SystemGreenColor(),
-		appkit.Color_SystemYellowColor(),
-	}))
-	r.ditem = utility.MenuItem("Delete", "trash", func(objc.Object) {
-		clicked := r.ClickedRow()
-		server.RemoveRegex(rules.ByIndex(clicked).P)
-		rules.Delete(clicked)
-		r.ReloadData()
-	}, appkit.ImageSymbolConfiguration_ConfigurationPreferringMulticolor())
-	menu.AddItem(r.titem)
-	menu.AddItem(r.ditem)
 	md := new(appkit.MenuDelegate)
 	md.SetMenuWillOpen(func(menu appkit.Menu) {
+		menu.RemoveAllItems()
 		index := r.ClickedRow()
-		hidden := index == -1
-		if !hidden {
-			rule := rules.ByIndex(index)
-			if rule.T {
-				r.titem.SetTitle("Disable")
-				r.titem.SetImage(utility.SymbolImage("bolt.slash.fill", r.titem.Image().SymbolConfiguration()))
-			} else {
-				r.titem.SetTitle("Enable")
-				r.titem.SetImage(utility.SymbolImage("bolt.fill", r.titem.Image().SymbolConfiguration()))
-			}
+		menu.AddItem(utility.MenuItem("New Rule", "plus.square.fill.on.square.fill", func(objc.Object) {
+			rules.Add(Rule{T: true})
+			lastIndex := rules.LastIndex()
+			r.ReloadData()
+			r.ScrollRowToVisible(lastIndex)
+			r.SelectRowIndexesByExtendingSelection(foundation.NewIndexSetWithIndex(uint(lastIndex)), true)
+			dispatch.MainQueue().DispatchAsync(func() {
+				text := appkit.TextFieldFrom(lastptr)
+				if !text.IsNil() {
+					text.BecomeFirstResponder()
+				}
+			})
+		}))
+
+		if index < 0 {
+			return
 		}
-		r.titem.SetHidden(hidden)
-		r.ditem.SetHidden(hidden)
+		rule := rules.ByIndex(index)
+		menu.AddItem(utility.MenuItem(
+			utility.Ternary(rule.T, "Disable", "Enable"),
+			utility.Ternary(rule.T, "bolt.slash.fill", "bolt.fill"),
+			func(objc.Object) {
+				rule.T = !rule.T
+				rules.Update(rule)
+				r.ReloadData()
+			}, utility.ImageHierarchical()))
+		menu.AddItem(utility.MenuItem("Delete", "trash", func(objc.Object) {
+			server.RemoveRegex(rule.P)
+			rules.Delete(index)
+			r.ReloadData()
+		}, appkit.ImageSymbolConfiguration_ConfigurationPreferringMulticolor()))
 	})
 	menu.SetDelegate(md)
 	r.TableView.SetMenu(menu)
@@ -187,8 +176,12 @@ func (r *RuleView) getRowView(column appkit.TableColumn, row int, rule Rule) app
 		r.ReloadData()
 	})
 	delegate.SetControlTextDidBeginEditing(func(obj foundation.Notification) {
-		fmt.Println("proxy server will be remove regexp:", text.StringValue())
-		server.RemoveRegex(text.StringValue())
+		value := text.StringValue()
+		if value == "" {
+			return
+		}
+		fmt.Println("proxy server will be remove regexp:", value)
+		server.RemoveRegex(value)
 	})
 	text.SetDelegate(delegate)
 	if row == rules.LastIndex() && column.Identifier() == colRuleIdentifier {

@@ -46,37 +46,49 @@ func (s *Sidebar) Init() {
 	s.outline.SetHeaderView(nil)
 	s.outline.AddTableColumn(utility.TableColumn(sidebarIdentifier, ""))
 
-	menu := appkit.NewMenu()
-	menu.AddItem(utility.MenuItem("Toggle State", "togglepower", func(sender objc.Object) {
-		proxy := proxies.ByIndex(s.outline.ClickedRow())
-		proxy.InUse = !proxy.InUse
-		proxies.Update(proxy)
-		selected := s.outline.SelectedRow()
-		s.Update()
-		s.SelectRow(selected)
-	}))
-	menu.AddItem(utility.MenuItem("Edit Options", "pencil.line", func(sender objc.Object) {
-		OpenProxySheet("Update options for Proxy:", proxies.ByIndex(s.outline.ClickedRow()))
-	}))
-	menu.AddItem(utility.MenuItem("Delete Proxy", "trash", func(objc.Object) {
+	delegate := new(appkit.MenuDelegate)
+	delegate.SetMenuWillOpen(func(menu appkit.Menu) {
+		menu.RemoveAllItems()
 		index := s.outline.ClickedRow()
+		if index < 0 {
+			return
+		}
 		proxy := proxies.ByIndex(index)
-		utility.ShowAlert(
-			utility.WithAlertTitle("Are you sure delete this proxy?"),
-			utility.WithAlertMessage(fmt.Sprintf("%s\n%s", cases.Title(language.English).String(proxy.Name), proxy.URL())),
-			utility.WithAlertWindow(Window),
-			utility.WithAlertStyle(appkit.AlertStyleWarning),
-			utility.WithAlertButtons("OK", "Cancel"),
-			utility.WithAlertHandler(func(code appkit.ModalResponse) {
-				if code == appkit.AlertFirstButtonReturn {
-					proxies.Delete(index)
-					s.Update()
-					s.SelectRow(s.outline.NumberOfRows() - 1)
-				}
-			}),
-		)
-	}))
-
+		menu.AddItem(utility.MenuItem(
+			utility.Ternary(proxy.InUse, "Disable", "Enable"),
+			utility.Ternary(proxy.InUse, "icloud.slash.fill", "icloud.fill"),
+			func(sender objc.Object) {
+				proxy := proxies.ByIndex(s.outline.ClickedRow())
+				proxy.InUse = !proxy.InUse
+				proxies.Update(proxy)
+				selected := s.outline.SelectedRow()
+				s.Update()
+				s.SelectRow(selected)
+			}, utility.ImageHierarchical()))
+		menu.AddItem(utility.MenuItem("Edit", "pencil.and.outline", func(sender objc.Object) {
+			OpenProxySheet("Update options for Proxy:", proxies.ByIndex(s.outline.ClickedRow()))
+		}, utility.ImageHierarchical()))
+		menu.AddItem(utility.MenuItem("Delete", "trash", func(objc.Object) {
+			index := s.outline.ClickedRow()
+			proxy := proxies.ByIndex(index)
+			utility.ShowAlert(
+				utility.WithAlertTitle("Are you sure delete this proxy?"),
+				utility.WithAlertMessage(fmt.Sprintf("%s\n%s", cases.Title(language.English).String(proxy.Name), proxy.URL())),
+				utility.WithAlertWindow(Window),
+				utility.WithAlertStyle(appkit.AlertStyleWarning),
+				utility.WithAlertButtons("OK", "Cancel"),
+				utility.WithAlertHandler(func(code appkit.ModalResponse) {
+					if code == appkit.AlertFirstButtonReturn {
+						proxies.Delete(index)
+						s.Update()
+						s.SelectRow(s.outline.NumberOfRows() - 1)
+					}
+				}),
+			)
+		}, appkit.ImageSymbolConfiguration_ConfigurationPreferringMulticolor()))
+	})
+	menu := appkit.NewMenu()
+	menu.SetDelegate(delegate)
 	s.outline.SetMenu(menu)
 	s.setDelegate()
 	s.setDatasource()

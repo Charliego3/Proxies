@@ -20,7 +20,7 @@ import (
 var (
 	rules   = new(RuleDatasource)
 	proxies = new(ProxyDatasource)
-	server  *ProxyServer
+	server  = NewProxyServer()
 )
 
 func init() {
@@ -37,18 +37,7 @@ func init() {
 		json.Unmarshal([]byte(rulevalue), &rules.datas)
 	}
 
-	var opened bool
-	for _, p := range proxies.datas {
-		if p.InUse {
-			opened = true
-			break
-		}
-	}
-
-	if opened {
-		server = NewProxyServer()
-		server.Start()
-	}
+	server.Start()
 }
 
 type ProxyServer struct {
@@ -78,12 +67,12 @@ func (g *ProxyServer) Start() (err error) {
 	g.mux.Lock()
 	defer g.mux.Unlock()
 
-	g.httpListener, err = net.Listen("tcp", ":48557")
+	g.httpListener, err = net.Listen("tcp", "0.0.0.0:48557")
 	if err != nil {
 		return err
 	}
 
-	g.sockListener, err = net.Listen("tcp", ":0")
+	g.sockListener, err = net.Listen("tcp", "0.0.0.0:0")
 	if err != nil {
 		return err
 	}
@@ -138,11 +127,13 @@ func (g *ProxyServer) handle(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+var unique sync.Map
+
 func (g *ProxyServer) getProxyForRequest(r *http.Request) string {
 	proxies := proxies.Fetch()
 	for proxyId, rules := range rules.FetchAll() {
 		for _, rule := range rules {
-			if !rule.T {
+			if !rule.T || rule.P == "" {
 				continue
 			}
 
@@ -168,6 +159,10 @@ func (g *ProxyServer) getProxyForRequest(r *http.Request) string {
 				}
 			}
 		}
+	}
+
+	if _, ok := unique.LoadOrStore(r.Host, struct{}{}); !ok {
+		fmt.Println("未匹配", r.Host)
 	}
 	return ""
 }
@@ -310,6 +305,11 @@ func (g *ProxyServer) handleSOCKS(conn net.Conn) {
 }
 
 func transfer(destination io.WriteCloser, source io.ReadCloser) {
+	defer func() {
+		if err := recover(); err != nil {
+			fmt.Println("transfer panic", err)
+		}
+	}()
 	defer destination.Close()
 	defer source.Close()
 	io.Copy(destination, source)
