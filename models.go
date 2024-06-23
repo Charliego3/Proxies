@@ -3,11 +3,15 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 
+	"github.com/charliego3/proxies/utility"
 	"github.com/google/uuid"
+	"github.com/progrium/macdriver/macos/appkit"
 	"github.com/progrium/macdriver/macos/foundation"
+	"github.com/progrium/macdriver/objc"
 )
 
 const ()
@@ -250,4 +254,57 @@ func (d *RuleDatasource) write() {
 func (d *RuleDatasource) LastIndex() int {
 	proxyId := Window.Sidebar.SelectedId()
 	return len(d.datas[proxyId]) - 1
+}
+
+type portObj struct {
+	Proxy `json:",inline"`
+	Rules []Rule `json:"rules"`
+}
+
+func Export(objc.Object) {
+	var list []portObj
+	proxies := proxies.Fetch()
+	for _, p := range proxies {
+		rules := rules.FetchWithProxy(p.ID)
+		list = append(list, portObj{Proxy: p, Rules: rules})
+	}
+
+	app.ActivateIgnoringOtherApps(true)
+	if len(list) == 0 {
+		utility.ShowAlert(
+			utility.WithAlertTitle("Oops!"),
+			utility.WithAlertMessage("There is no proxy for export"),
+		)
+		return
+	}
+
+	path, _ := os.UserHomeDir()
+	panel := appkit.NewSavePanelWithContentRectStyleMaskBackingDefer(
+		utility.RectOf(utility.SizeOf(1000, 1000)),
+		appkit.WindowStyleMaskTitled|appkit.WindowStyleMaskResizable,
+		appkit.BackingStoreBuffered, false)
+	panel.SetTitle("Export Proxies")
+	panel.SetCanCreateDirectories(true)
+	panel.SetDirectoryURL(foundation.URL_FileURLWithPathComponents([]string{path, "Downloads"}))
+	panel.SetToolbarStyle(appkit.WindowToolbarStyleExpanded)
+	panel.SetNameFieldStringValue("proxies.json")
+
+	handler := func(result appkit.ModalResponse) {
+		if result != appkit.ModalResponseOK {
+			return
+		}
+
+		buf, _ := json.Marshal(list)
+		foundation.String_StringWithString(string(buf)).WriteToURLAtomicallyEncodingError(
+			panel.URL(),
+			true,
+			foundation.String_DefaultCStringEncoding(),
+			nil,
+		)
+	}
+	if Window == nil {
+		panel.BeginWithCompletionHandler(handler)
+	} else {
+		panel.BeginSheetModalForWindowCompletionHandler(Window, handler)
+	}
 }
