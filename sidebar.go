@@ -122,6 +122,9 @@ func (s *Sidebar) setDelegate() {
 	delegate.SetOutlineViewSelectionDidChange(func(notification foundation.Notification) {
 		proxy := proxies.ByIndex(s.outline.SelectedRow())
 		Window.SetTitle(cases.Title(language.English).String(proxy.Name))
+		if Window.Rules != nil {
+			Window.Rules.ReloadData()
+		}
 	})
 	po0 := objc.WrapAsProtocol("NSOutlineViewDelegate", appkit.POutlineViewDelegate(delegate))
 	objc.SetAssociatedObject(s.outline, objc.AssociationKey("setDelegate"), po0, objc.ASSOCIATION_RETAIN)

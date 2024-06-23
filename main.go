@@ -146,7 +146,7 @@ func (app *App) setupSystemBar() {
 			}))
 		menu.AddItem(utility.MenuItem("Open Window", "text.and.command.macwindow", app.launchWindow))
 		menu.AddItem(appkit.MenuItem_SeparatorItem())
-		menu.AddItem(utility.MenuItem("Import Proxies", "square.and.arrow.down", func(objc.Object) {}))
+		menu.AddItem(utility.MenuItem("Import Proxies", "square.and.arrow.down", Import))
 		menu.AddItem(utility.MenuItem("Export Proxies", "square.and.arrow.up", Export))
 		menu.AddItem(appkit.MenuItem_SeparatorItem())
 		menu.AddItem(utility.MenuItem("Hide", "eye.fill", utility.Ternary(Window == nil, nil, func(objc.Object) { app.Hide(nil) })))

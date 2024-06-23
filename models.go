@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/progrium/macdriver/macos/appkit"
 	"github.com/progrium/macdriver/macos/foundation"
+	"github.com/progrium/macdriver/macos/uti"
 	"github.com/progrium/macdriver/objc"
 )
 
@@ -261,6 +262,69 @@ type portObj struct {
 	Rules []Rule `json:"rules"`
 }
 
+func Import(objc.Object) {
+	app.ActivateIgnoringOtherApps(true)
+	panel := appkit.NewOpenPanelWithContentRectStyleMaskBackingDefer(
+		utility.RectOf(utility.SizeOf(500, 1000)),
+		appkit.WindowStyleMaskTitled|appkit.WindowStyleMaskResizable,
+		appkit.BackingStoreBuffered, false)
+	panel.SetTitle("Import Proxies")
+	panel.SetAllowedContentTypes([]uti.IType{uti.Type_TypeWithFilenameExtension("json")})
+	handler := func(result appkit.ModalResponse) {
+		if result != appkit.ModalResponseOK {
+			return
+		}
+
+		contents := foundation.String_StringWithContentsOfURLEncodingError(
+			panel.URL(), foundation.String_DefaultCStringEncoding(), nil)
+		var list []portObj
+		if err := json.Unmarshal([]byte(contents.String()), &list); err != nil {
+			return
+		}
+
+		for _, obj := range list {
+			proxies.mux.Lock()
+			var exists bool
+			for i, p := range proxies.datas {
+				if p.ID == obj.ID {
+					exists = true
+					proxies.datas[i] = obj.Proxy
+				}
+			}
+
+			if !exists {
+				proxies.datas = append(proxies.datas, obj.Proxy)
+			}
+			proxies.write()
+			proxies.mux.Unlock()
+
+			rules.mux.Lock()
+			for j, r := range rules.datas[obj.ID] {
+				for j2, r2 := range obj.Rules {
+					if r2.ID == r.ID {
+						rules.datas[obj.ID][j] = r2
+						obj.Rules = append(obj.Rules[:j2], obj.Rules[j2+1:]...)
+					}
+				}
+			}
+			rules.datas[obj.ID] = append(rules.datas[obj.ID], obj.Rules...)
+			rules.write()
+			rules.mux.Unlock()
+		}
+
+		app.launchWindow(objc.Object{})
+		Window.Sidebar.outline.ReloadData()
+		Window.Rules.ReloadData()
+		Window.Sidebar.SelectRow(0)
+	}
+
+	if Window == nil {
+		panel.BeginWithCompletionHandler(handler)
+	} else {
+		panel.BeginSheetModalForWindowCompletionHandler(Window, handler)
+	}
+}
+
 func Export(objc.Object) {
 	var list []portObj
 	proxies := proxies.Fetch()
@@ -286,7 +350,6 @@ func Export(objc.Object) {
 	panel.SetTitle("Export Proxies")
 	panel.SetCanCreateDirectories(true)
 	panel.SetDirectoryURL(foundation.URL_FileURLWithPathComponents([]string{path, "Downloads"}))
-	panel.SetToolbarStyle(appkit.WindowToolbarStyleExpanded)
 	panel.SetNameFieldStringValue("proxies.json")
 
 	handler := func(result appkit.ModalResponse) {
