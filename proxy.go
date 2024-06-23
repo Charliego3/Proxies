@@ -308,9 +308,11 @@ func transfer(destination io.WriteCloser, source io.ReadCloser) {
 	defer func() {
 		if err := recover(); err != nil {
 			fmt.Println("transfer panic", err)
+			return
 		}
+
+		destination.Close()
+		source.Close()
 	}()
-	defer destination.Close()
-	defer source.Close()
 	io.Copy(destination, source)
 }
