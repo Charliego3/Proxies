@@ -1,215 +1,316 @@
 package main
 
 import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"log"
+	"net"
+	"net/http"
 	"net/url"
-	"strconv"
+	"regexp"
 	"strings"
-
-	"github.com/charliego3/proxies/utility"
-	"github.com/progrium/macdriver/helper/action"
-	"github.com/progrium/macdriver/helper/layout"
-	"github.com/progrium/macdriver/macos/appkit"
-	"github.com/progrium/macdriver/objc"
+	"sync"
+	"time"
 )
 
-type Creator struct {
-	appkit.IView
-	p appkit.IWindow
+var (
+	rules   = new(RuleDatasource)
+	proxies = new(ProxyDatasource)
+	server  *ProxyServer
+)
+
+func init() {
+	proxies.mux = new(sync.RWMutex)
+	proxyvalue := defaults.StringForKey(proxyDefaultsKey)
+	if proxyvalue != "" {
+		json.Unmarshal([]byte(proxyvalue), &proxies.datas)
+	}
+
+	rules.datas = make(map[string][]Rule)
+	rules.mux = new(sync.RWMutex)
+	rulevalue := defaults.StringForKey(ruleDefaultsKey)
+	if rulevalue != "" {
+		json.Unmarshal([]byte(rulevalue), &rules.datas)
+	}
+
+	var opened bool
+	for _, p := range proxies.datas {
+		if p.InUse {
+			opened = true
+			break
+		}
+	}
+
+	if opened {
+		server = NewProxyServer()
+		server.Start()
+	}
 }
 
-func NewCreator(p appkit.IWindow) Creator {
-	return Creator{IView: appkit.NewView(), p: p}
+type ProxyServer struct {
+	mux *sync.Mutex
+
+	http *http.Server
+
+	httpListener net.Listener
+	sockListener net.Listener
+
+	regexs *sync.Map
 }
 
-func (c Creator) Init(title string, proxy Proxy) {
-	c.p.SetContentView(c)
-	label := appkit.NewLabel(title)
-	label.SetTranslatesAutoresizingMaskIntoConstraints(false)
-	c.AddSubview(label)
-	layout.PinAnchorTo(label.LeadingAnchor(), c.LeadingAnchor(), 20)
-	layout.PinAnchorTo(label.TopAnchor(), c.TopAnchor(), 15)
+func NewProxyServer() *ProxyServer {
+	server := new(ProxyServer)
+	server.mux = new(sync.Mutex)
+	server.http = new(http.Server)
+	server.regexs = new(sync.Map)
+	return server
+}
 
-	cancel := appkit.NewPushButton("Cancel")
-	cancel.SetBezelStyle(appkit.BezelStyleRounded)
-	cancel.SetTranslatesAutoresizingMaskIntoConstraints(false)
-	action.Set(cancel, func(sender objc.Object) { Window.EndSheet(c.p) })
-	c.AddSubview(cancel)
-	layout.SetMinWidth(cancel, 100)
-	layout.PinAnchorTo(cancel.LeadingAnchor(), c.LeadingAnchor(), 20)
-	layout.PinAnchorTo(cancel.BottomAnchor(), c.BottomAnchor(), -15)
+func (g *ProxyServer) RemoveRegex(pattern string) {
+	g.regexs.Delete(pattern)
+}
 
-	ok := appkit.NewPushButton("Save")
-	ok.SetBezelStyle(appkit.BezelStyleRounded)
-	ok.SetState(appkit.MixedState)
-	ok.SetTranslatesAutoresizingMaskIntoConstraints(false)
-	c.AddSubview(ok)
-	layout.SetMinWidth(ok, 100)
-	layout.PinAnchorTo(ok.TrailingAnchor(), c.TrailingAnchor(), -20)
-	layout.PinAnchorTo(ok.BottomAnchor(), c.BottomAnchor(), -15)
+func (g *ProxyServer) Start() (err error) {
+	g.mux.Lock()
+	defer g.mux.Unlock()
 
-	box := appkit.NewBox()
-	box.SetTranslatesAutoresizingMaskIntoConstraints(false)
-	box.SetBoxType(appkit.BoxCustom)
-	box.SetCornerRadius(5)
-	box.SetBorderWidth(1)
-	box.SetBorderColor(appkit.Color_SeparatorColor())
-	box.SetContentViewMargins(utility.SizeOf(0, 0))
-	utility.AddAppearanceObserver(func() {
-		box.SetFillColor(utility.ColorWithAppearance(appkit.Color_WhiteColor(), utility.ColorHex("#303030")))
-	})
-	c.AddSubview(box)
-	layout.PinAnchorTo(box.LeadingAnchor(), c.LeadingAnchor(), 20)
-	layout.PinAnchorTo(box.TopAnchor(), label.BottomAnchor(), 15)
-	layout.PinAnchorTo(box.TrailingAnchor(), c.TrailingAnchor(), -20)
-	layout.PinAnchorTo(box.BottomAnchor(), ok.TopAnchor(), -15)
-
-	types := appkit.NewPopUpButton()
-	types.AddItemsWithTitles([]string{
-		"HTTP",
-		"HTTPS",
-	})
-	types.SelectItemWithTitle(proxy.Schema)
-	types.SetTranslatesAutoresizingMaskIntoConstraints(false)
-	layout.SetMinWidth(types, 250)
-	namei := appkit.NewTextField()
-	namei.SetStringValue(proxy.Name)
-	hosti := appkit.NewTextField()
-	hosti.SetStringValue(proxy.Host)
-	porti := appkit.NewTextField()
-	if proxy.Port > 0 {
-		porti.SetStringValue(strconv.Itoa(proxy.Port))
+	g.httpListener, err = net.Listen("tcp", ":48557")
+	if err != nil {
+		return err
 	}
-	typesHandler := func(sender objc.Object) {
-		if "HTTPS" == types.TitleOfSelectedItem() {
-			hosti.SetPlaceholderString("example.com")
-			porti.SetPlaceholderString("443")
-		} else {
-			hosti.SetPlaceholderString("192.168.1.2")
-			porti.SetPlaceholderString("80")
-		}
-	}
-	typesHandler(objc.NewObject())
-	action.Set(types, typesHandler)
 
-	authed := "Username & Password"
-	authentication := appkit.NewPopUpButton()
-	authentication.AddItemsWithTitles([]string{"None", authed})
-	authentication.SetTranslatesAutoresizingMaskIntoConstraints(false)
-	var paddingTop float64 = 75
-	if proxy.Auth {
-		authentication.SelectItemWithTitle(authed)
-		paddingTop = 50
+	g.sockListener, err = net.Listen("tcp", ":0")
+	if err != nil {
+		return err
 	}
-	layout.SetMinWidth(authentication, 250)
 
-	unamel := appkit.NewLabel("Username:")
-	unamei := appkit.NewTextField()
-	unamei.SetStringValue(proxy.Username)
-	passl := appkit.NewLabel("Password:")
-	passi := appkit.NewTextField()
-	passi.SetStringValue(proxy.Password)
-	grid := appkit.GridView_GridViewWithViews([][]appkit.IView{
-		{appkit.NewLabel("Name:"), namei},
-		{appkit.NewLabel("Type:"), types},
-		{appkit.NewLabel("Host:"), hosti},
-		{appkit.NewLabel("Port:"), porti},
-		{appkit.NewLabel("Authenication"), authentication},
-		{unamel, unamei},
-		{passl, passi},
-	})
-	grid.SetColumnSpacing(7)
-	grid.SetRowSpacing(10)
-	grid.SetXPlacement(appkit.GridCellPlacementTrailing)
-	grid.SetTranslatesAutoresizingMaskIntoConstraints(false)
-	box.AddSubview(grid)
-	layout.SetMinWidth(grid, 300)
-	layout.AliginCenterX(grid, box)
-	constraint := grid.TopAnchor().ConstraintEqualToAnchorConstant(box.TopAnchor(), paddingTop)
-	constraint.SetActive(true)
+	g.http.Handler = http.HandlerFunc(g.handle)
+	go g.http.Serve(g.httpListener)
+	go func() {
+		for {
+			conn, err := g.sockListener.Accept()
+			if err != nil {
+				if errors.Is(err, net.ErrClosed) {
+					return
+				}
+				continue
+			}
 
-	authenticationHandler := func(sender objc.Object) {
-		paddingTop = 50
-		if authentication.TitleOfSelectedItem() == authed {
-			unamei.SetHidden(false)
-			unamel.SetHidden(false)
-			passl.SetHidden(false)
-			passi.SetHidden(false)
-		} else {
-			unamei.SetHidden(true)
-			unamel.SetHidden(true)
-			passl.SetHidden(true)
-			passi.SetHidden(true)
-			paddingTop = 75
+			go g.handleSOCKS(conn)
 		}
-		constraint.SetActive(false)
-		constraint = grid.TopAnchor().ConstraintEqualToAnchorConstant(box.TopAnchor(), paddingTop)
-		constraint.SetActive(true)
-		grid.SetNeedsUpdateConstraints(true)
+	}()
+	g.setupSystem()
+	fmt.Println("http proxy listen on", g.httpListener.Addr().String())
+	fmt.Println("sock proxy listen on", g.sockListener.Addr().String())
+	return nil
+}
+
+func (g *ProxyServer) setupSystem() {
+
+}
+
+func (g *ProxyServer) aaaaa() {
+
+}
+
+func (g *ProxyServer) Shutdown() {
+	g.mux.Lock()
+	defer g.mux.Unlock()
+
+	g.http.Shutdown(context.Background())
+	g.sockListener.Close()
+}
+
+func (g *ProxyServer) handle(w http.ResponseWriter, r *http.Request) {
+	defer func() {
+		if err := recover(); err != nil {
+			fmt.Println(err)
+		}
+	}()
+	if r.Method == http.MethodConnect {
+		g.handleHTTPS(w, r)
+	} else {
+		g.handleHTTP(w, r)
 	}
-	authenticationHandler(objc.NewObject())
-	action.Set(authentication, authenticationHandler)
-	action.Set(ok, func(sender objc.Object) {
-		ok.SetEnabled(false)
-		showWaring := func(message string) {
-			utility.ShowAlert(
-				utility.WithAlertTitle("Oops!"),
-				utility.WithAlertMessage("Options are invalid: "+message),
-				utility.WithAlertWindow(c.p),
-				utility.WithAlertStyle(appkit.AlertStyleWarning),
-			)
-			ok.SetEnabled(true)
-			ok.SetState(appkit.MixedState)
-		}
-		name := namei.StringValue()
-		port := porti.StringValue()
-		host := hosti.StringValue()
-		if name == "" {
-			showWaring("Name can not be empty")
-			return
-		}
-		if host == "" {
-			showWaring("Host can not be empty")
-			return
-		}
-		schema := types.TitleOfSelectedItem()
-		if port == "" {
-			if schema == "HTTP" {
-				port = "80"
-			} else {
-				port = "443"
+}
+
+func (g *ProxyServer) getProxyForRequest(r *http.Request) string {
+	proxies := proxies.Fetch()
+	for proxyId, rules := range rules.FetchAll() {
+		for _, rule := range rules {
+			if !rule.T {
+				continue
+			}
+
+			regex, ok := g.regexs.Load(rule.P)
+			if !ok {
+				regex = regexp.MustCompile(rule.Pattern())
+				g.regexs.Store(rule.P, regex)
+			}
+
+			host := r.Host
+			if strings.HasSuffix(host, ":443") {
+				host = host[:len(host)-4]
+			} else if strings.HasSuffix(host, ":80") {
+				host = host[:len(host)-3]
+			}
+			if !regex.(*regexp.Regexp).MatchString(host) {
+				continue
+			}
+
+			for _, p := range proxies {
+				if p.InUse && p.ID == proxyId {
+					return p.URL()
+				}
 			}
 		}
-		_, err := url.Parse(fmt.Sprintf("%s://%s:%s", strings.ToLower(schema), host, port))
-		if err != nil {
-			showWaring(err.Error())
-			return
-		}
-		proxy.Name = name
-		proxy.Schema = schema
-		proxy.Host = host
-		proxy.Port, _ = strconv.Atoi(port)
-		proxy.Auth = authentication.TitleOfSelectedItem() == authed
-		proxy.Username = unamei.StringValue()
-		proxy.Password = passi.StringValue()
-		proxies.Update(proxy)
-		Window.Sidebar.Update()
-		Window.Sidebar.ScrollToBottom()
-		Window.EndSheetReturnCode(c.p, appkit.ModalResponseOK)
-	})
+	}
+	return ""
 }
 
-func (Creator) Handler(code appkit.ModalResponse) {}
+func (g *ProxyServer) handleHTTP(w http.ResponseWriter, r *http.Request) {
+	var transport http.RoundTripper
+	proxyAddr := g.getProxyForRequest(r)
+	if proxyAddr != "" {
+		proxyURL, err := url.Parse(proxyAddr)
+		if err != nil {
+			http.Error(w, "Invalid proxy address", http.StatusInternalServerError)
+			return
+		}
 
-func OpenProxySheet(title string, proxy Proxy) {
-	panel := appkit.NewWindowWithSizeAndStyle(
-		500, 400,
-		appkit.WindowStyleMaskTitled|
-			appkit.WindowStyleMaskFullSizeContentView,
-	)
+		transport = &http.Transport{
+			Proxy: http.ProxyURL(proxyURL),
+		}
+	} else {
+		transport = &http.Transport{}
+	}
 
-	panel.SetMenu(appkit.NewMenuWithTitle("title string"))
-	creator := NewCreator(panel)
-	creator.Init(title, proxy)
-	Window.BeginSheetCompletionHandler(panel, creator.Handler)
+	client := &http.Client{Timeout: time.Minute * 3, Transport: transport}
+	resp, err := client.Do(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
+
+	for k, vv := range resp.Header {
+		for _, v := range vv {
+			w.Header().Add(k, v)
+		}
+	}
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body)
+}
+
+func (g *ProxyServer) handleHTTPS(w http.ResponseWriter, r *http.Request) {
+	proxyAddr := g.getProxyForRequest(r)
+	var destConn net.Conn
+	var err error
+	if proxyAddr != "" {
+		proxyURL, err := url.Parse(proxyAddr)
+		if err != nil {
+			http.Error(w, "Invalid proxy address", http.StatusInternalServerError)
+			return
+		}
+
+		destConn, err = net.DialTimeout("tcp", proxyURL.Host, time.Second*5)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+
+		fmt.Fprintf(destConn, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", r.Host, r.Host)
+		br := bufio.NewReader(destConn)
+		resp, err := http.ReadResponse(br, r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		if resp.StatusCode != 200 {
+			http.Error(w, fmt.Sprintf("Proxy responded with non 200 status: %s", resp.Status), resp.StatusCode)
+			return
+		}
+	} else {
+		destConn, err = net.DialTimeout("tcp", r.Host, time.Second*5)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+	}
+
+	w.WriteHeader(http.StatusOK)
+	hijacker, ok := w.(http.Hijacker)
+	if !ok {
+		http.Error(w, "Hijacking not supported", http.StatusInternalServerError)
+		return
+	}
+	clientConn, _, err := hijacker.Hijack()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+
+	go transfer(destConn, clientConn)
+	go transfer(clientConn, destConn)
+}
+
+func (g *ProxyServer) handleSOCKS(conn net.Conn) {
+	defer conn.Close()
+
+	// Read the SOCKS handshake to determine the target
+	buffer := make([]byte, 1024)
+	n, err := conn.Read(buffer)
+	if err != nil {
+		log.Printf("Failed to read SOCKS handshake: %v", err)
+		return
+	}
+
+	// Create a mock request to use with the proxy selector
+	mockRequest := &http.Request{
+		Header: make(http.Header),
+	}
+
+	// Extract destination from SOCKS request (simplified)
+	if n > 3 && buffer[0] == 5 { // SOCKS5
+		mockRequest.Host = fmt.Sprintf("%s:%d", net.IP(buffer[4:8]).String(), uint16(buffer[8])<<8|uint16(buffer[9]))
+	}
+
+	var proxyConn net.Conn
+	proxyAddr := g.getProxyForRequest(mockRequest)
+	if proxyAddr != "" {
+		proxyConn, err = net.Dial("tcp", proxyAddr)
+		if err != nil {
+			log.Printf("Failed to connect to proxy: %v", err)
+			return
+		}
+		defer proxyConn.Close()
+
+		// Forward the initial SOCKS handshake
+		proxyConn.Write(buffer[:n])
+	} else {
+		targetAddr := mockRequest.Host
+		proxyConn, err = net.Dial("tcp", targetAddr)
+		if err != nil {
+			log.Printf("Failed to connect to target: %v", err)
+			return
+		}
+		defer proxyConn.Close()
+		// Handle SOCKS protocol with the client
+		// This is a simplified version and needs to be expanded for full SOCKS support
+		conn.Write([]byte{0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00})
+	}
+
+	// Transfer data between connections
+	go io.Copy(proxyConn, conn)
+	io.Copy(conn, proxyConn)
+}
+
+func transfer(destination io.WriteCloser, source io.ReadCloser) {
+	defer destination.Close()
+	defer source.Close()
+	io.Copy(destination, source)
 }

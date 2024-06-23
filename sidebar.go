@@ -1,11 +1,9 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/charliego3/proxies/utility"
 	"github.com/progrium/macdriver/helper/layout"
@@ -21,18 +19,6 @@ const (
 
 	proxyDefaultsKey = "proxiesKey"
 )
-
-var proxies = new(ProxyDatasource)
-
-func init() {
-	proxies.mux = new(sync.RWMutex)
-	proxyvalue := defaults.StringForKey(proxyDefaultsKey)
-	if proxyvalue == "" {
-		return
-	}
-
-	json.Unmarshal([]byte(proxyvalue), &proxies.proxies)
-}
 
 type Sidebar struct {
 	appkit.IViewController

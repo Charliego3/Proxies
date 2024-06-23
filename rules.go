@@ -1,8 +1,7 @@
 package main
 
 import (
-	"encoding/json"
-	"sync"
+	"fmt"
 	"unsafe"
 
 	"github.com/charliego3/proxies/utility"
@@ -32,20 +31,6 @@ func NewRulesViewController() *RuleView {
 	return new(RuleView).Init()
 }
 
-var rules *RuleDatasource
-
-func init() {
-	rules = new(RuleDatasource)
-	rules.rules = make(map[string][]Rule)
-	rules.mux = new(sync.RWMutex)
-	rulevalue := defaults.StringForKey(ruleDefaultsKey)
-	if rulevalue == "" {
-		return
-	}
-
-	json.Unmarshal([]byte(rulevalue), &rules.rules)
-}
-
 func (r *RuleView) Init() *RuleView {
 	r.TableView = appkit.NewTableView()
 	r.SetColumnAutoresizingStyle(appkit.TableViewSequentialColumnAutoresizingStyle)
@@ -62,7 +47,7 @@ func (r *RuleView) Init() *RuleView {
 	r.AddTableColumn(createTableColumn(colStateIdentifier, "Remark"))
 
 	menu := appkit.NewMenu()
-	menu.AddItem(utility.MenuItem("New Rule", "plus.circle.fill", func(objc.Object) {
+	menu.AddItem(utility.MenuItem("New Rule", "plus.rectangle", func(objc.Object) {
 		rules.Add(Rule{T: true})
 		lastIndex := rules.LastIndex()
 		r.ReloadData()
@@ -74,17 +59,22 @@ func (r *RuleView) Init() *RuleView {
 				text.BecomeFirstResponder()
 			}
 		})
-	}))
-	r.titem = utility.MenuItem("Switch State", "switch.2", func(objc.Object) {
+	}, appkit.ImageSymbolConfiguration_ConfigurationPreferringMulticolor()))
+	r.titem = utility.MenuItem("Switch State", "bolt", func(objc.Object) {
 		rule := rules.ByIndex(r.ClickedRow())
 		rule.T = !rule.T
 		rules.Update(rule)
 		r.ReloadData()
-	})
-	r.ditem = utility.MenuItem("Delete", "trash.fill", func(objc.Object) {
-		rules.Delete(r.ClickedRow())
+	}, appkit.ImageSymbolConfiguration_ConfigurationWithPaletteColors([]appkit.IColor{
+		appkit.Color_SystemGreenColor(),
+		appkit.Color_SystemYellowColor(),
+	}))
+	r.ditem = utility.MenuItem("Delete", "trash", func(objc.Object) {
+		clicked := r.ClickedRow()
+		server.RemoveRegex(rules.ByIndex(clicked).P)
+		rules.Delete(clicked)
 		r.ReloadData()
-	})
+	}, appkit.ImageSymbolConfiguration_ConfigurationPreferringMulticolor())
 	menu.AddItem(r.titem)
 	menu.AddItem(r.ditem)
 	md := new(appkit.MenuDelegate)
@@ -95,10 +85,10 @@ func (r *RuleView) Init() *RuleView {
 			rule := rules.ByIndex(index)
 			if rule.T {
 				r.titem.SetTitle("Disable")
-				r.titem.SetImage(utility.SymbolImage("lock.fill"))
+				r.titem.SetImage(utility.SymbolImage("bolt.slash.fill", r.titem.Image().SymbolConfiguration()))
 			} else {
 				r.titem.SetTitle("Enable")
-				r.titem.SetImage(utility.SymbolImage("lock.open.fill"))
+				r.titem.SetImage(utility.SymbolImage("bolt.fill", r.titem.Image().SymbolConfiguration()))
 			}
 		}
 		r.titem.SetHidden(hidden)
@@ -117,14 +107,12 @@ func (r *RuleView) Init() *RuleView {
 	delegate.SetTableViewViewForTableColumnRow(func(_ appkit.TableView, column appkit.TableColumn, row int) appkit.View {
 		rule := rules.ByIndex(row)
 		if column.Identifier() == colRemarkIdentifier {
-			symbol := "multiply.circle.fill"
-			colors := []appkit.IColor{appkit.Color_WhiteColor(), appkit.Color_SystemRedColor()}
+			color := appkit.Color_SystemRedColor()
 			if rule.T {
-				symbol = "checkmark.circle.fill"
-				colors = []appkit.IColor{appkit.Color_WhiteColor(), utility.ColorHex("00CC00")}
+				color = utility.ColorHex("00CC00")
 			}
-			return appkit.ImageView_ImageViewWithImage(utility.SymbolImage(symbol,
-				appkit.ImageSymbolConfiguration_ConfigurationWithPaletteColors(colors))).View
+			return appkit.ImageView_ImageViewWithImage(utility.SymbolImage("circle.fill",
+				appkit.ImageSymbolConfiguration_ConfigurationWithHierarchicalColor(color))).View
 		}
 
 		return r.getRowView(column, row, rule)
@@ -172,7 +160,7 @@ func (r *RuleView) getRowView(column appkit.TableColumn, row int, rule Rule) app
 	text := appkit.NewTextField()
 	value := rule.R
 	if column.Identifier() == colRuleIdentifier {
-		value = rule.N
+		value = rule.P
 		text.SetPlaceholderString("rule pattern")
 	}
 	text.SetBordered(false)
@@ -186,8 +174,8 @@ func (r *RuleView) getRowView(column appkit.TableColumn, row int, rule Rule) app
 	delegate := new(appkit.TextFieldDelegate)
 	delegate.SetControlTextDidEndEditing(func(obj foundation.Notification) {
 		if column.Identifier() == colRuleIdentifier {
-			rule.N = text.StringValue()
-			if rule.N == "" {
+			rule.P = text.StringValue()
+			if rule.P == "" {
 				rules.DeleteById(rule.ID)
 				r.ReloadData()
 				return
@@ -197,6 +185,10 @@ func (r *RuleView) getRowView(column appkit.TableColumn, row int, rule Rule) app
 		}
 		rules.Update(rule)
 		r.ReloadData()
+	})
+	delegate.SetControlTextDidBeginEditing(func(obj foundation.Notification) {
+		fmt.Println("proxy server will be remove regexp:", text.StringValue())
+		server.RemoveRegex(text.StringValue())
 	})
 	text.SetDelegate(delegate)
 	if row == rules.LastIndex() && column.Identifier() == colRuleIdentifier {

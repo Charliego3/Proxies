@@ -4,7 +4,6 @@ import (
 	"github.com/progrium/macdriver/helper/action"
 	"github.com/progrium/macdriver/helper/layout"
 	"github.com/progrium/macdriver/macos/appkit"
-	"github.com/progrium/macdriver/objc"
 )
 
 func Controller(view appkit.IView) appkit.ViewController {
@@ -78,11 +77,13 @@ func TableColumn(identifier appkit.UserInterfaceItemIdentifier, title string) ap
 	return column
 }
 
-func MenuItem(title, icon string, handler func(objc.Object)) appkit.MenuItem {
+func MenuItem(title, icon string, handler action.Handler, configurations ...appkit.ImageSymbolConfiguration) appkit.MenuItem {
 	item := appkit.NewMenuItem()
 	item.SetTitle(title)
-	item.SetImage(SymbolImage(icon))
-	action.Set(item, handler)
+	item.SetImage(SymbolImage(icon, configurations...))
+	if handler != nil {
+		action.Set(item, handler)
+	}
 	return item
 }
 

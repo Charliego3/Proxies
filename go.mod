@@ -9,6 +9,6 @@ require (
 	github.com/google/uuid v1.6.0
 )
 
-require golang.org/x/text v0.15.0
+require golang.org/x/text v0.16.0
 
 replace github.com/progrium/macdriver => ../macdriver

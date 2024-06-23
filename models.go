@@ -33,8 +33,8 @@ func NewProxy() Proxy {
 }
 
 type ProxyDatasource struct {
-	proxies []Proxy
-	mux     *sync.RWMutex
+	datas []Proxy
+	mux   *sync.RWMutex
 }
 
 func (d *ProxyDatasource) ByIndex(index int) Proxy {
@@ -45,27 +45,39 @@ func (d *ProxyDatasource) ByIndex(index int) Proxy {
 	d.mux.RLock()
 	defer d.mux.RUnlock()
 
-	if len(d.proxies)-1 < index {
+	if len(d.datas)-1 < index {
 		return Proxy{}
 	}
-	return d.proxies[index]
+	return d.datas[index]
 }
 
 func (d *ProxyDatasource) Length() int {
 	d.mux.RLock()
 	defer d.mux.RUnlock()
-	return len(d.proxies)
+	return len(d.datas)
 }
 
 func (d *ProxyDatasource) Fetch() (proxies []Proxy) {
 	d.mux.RLock()
 	defer d.mux.RUnlock()
 
-	proxies = make([]Proxy, len(d.proxies))
-	for i, p := range d.proxies {
+	proxies = make([]Proxy, len(d.datas))
+	for i, p := range d.datas {
 		proxies[i] = p
 	}
 	return
+}
+
+func (d *ProxyDatasource) AnyUsing() bool {
+	d.mux.RLock()
+	defer d.mux.RUnlock()
+
+	for _, p := range d.datas {
+		if p.InUse {
+			return true
+		}
+	}
+	return false
 }
 
 func (d *ProxyDatasource) Update(proxy Proxy) {
@@ -78,15 +90,15 @@ func (d *ProxyDatasource) Update(proxy Proxy) {
 	}
 
 	var updated bool
-	for i, p := range d.proxies {
+	for i, p := range d.datas {
 		if p.ID == proxy.ID {
-			d.proxies = append(d.proxies[:i], append([]Proxy{proxy}, d.proxies[i+1:]...)...)
+			d.datas = append(d.datas[:i], append([]Proxy{proxy}, d.datas[i+1:]...)...)
 			updated = true
 		}
 	}
 
 	if !updated {
-		d.proxies = append(d.proxies, proxy)
+		d.datas = append(d.datas, proxy)
 	}
 	d.write()
 }
@@ -94,32 +106,51 @@ func (d *ProxyDatasource) Update(proxy Proxy) {
 func (d *ProxyDatasource) Delete(index int) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
-	d.proxies = append(d.proxies[:index], d.proxies[index+1:]...)
+	d.datas = append(d.datas[:index], d.datas[index+1:]...)
 	d.write()
 }
 
 func (d *ProxyDatasource) write() {
-	buf, _ := json.Marshal(d.proxies)
+	buf, _ := json.Marshal(d.datas)
 	defaults.SetObjectForKey(foundation.String_StringWithString(string(buf)), proxyDefaultsKey)
 }
 
 type Rule struct {
 	ID string
-	N  string // name
+	P  string // pattern
 	T  bool   // state
 	R  string // remark
 }
 
+func (r Rule) Pattern() string {
+	return fmt.Sprintf("^%s$", r.P)
+}
+
 type RuleDatasource struct {
-	rules map[string][]Rule
+	datas map[string][]Rule
 	mux   *sync.RWMutex
 }
 
-func (d *RuleDatasource) Fetch() (rules []Rule) {
+func (d *RuleDatasource) FetchAll() map[string][]Rule {
 	d.mux.RLock()
 	defer d.mux.RUnlock()
 
-	if rs, ok := d.rules[Window.Sidebar.SelectedId()]; ok {
+	result := make(map[string][]Rule, len(rules.datas))
+	for k, v := range d.datas {
+		result[k] = append([]Rule{}, v...)
+	}
+	return result
+}
+
+func (d *RuleDatasource) Fetch() (rules []Rule) {
+	return d.FetchWithProxy(Window.Sidebar.SelectedId())
+}
+
+func (d *RuleDatasource) FetchWithProxy(proxyId string) (rules []Rule) {
+	d.mux.RLock()
+	defer d.mux.RUnlock()
+
+	if rs, ok := d.datas[proxyId]; ok {
 		rules = make([]Rule, len(rs))
 		for i, r := range rs {
 			rules[i] = r
@@ -132,7 +163,7 @@ func (d *RuleDatasource) ByIndex(index int) Rule {
 	d.mux.RLock()
 	defer d.mux.RUnlock()
 
-	if rs, ok := d.rules[Window.Sidebar.SelectedId()]; ok && len(rs) > index {
+	if rs, ok := d.datas[Window.Sidebar.SelectedId()]; ok && len(rs) > index {
 		return rs[index]
 	}
 	return Rule{}
@@ -143,13 +174,13 @@ func (d *RuleDatasource) Update(rule Rule) {
 	defer d.mux.Unlock()
 
 	proxyId := Window.Sidebar.SelectedId()
-	if rules, ok := d.rules[proxyId]; ok {
+	if rules, ok := d.datas[proxyId]; ok {
 		for i := range rules {
 			if rules[i].ID == rule.ID {
 				rules[i] = rule
 			}
 		}
-		d.rules[proxyId] = rules
+		d.datas[proxyId] = rules
 	}
 	d.write()
 }
@@ -164,10 +195,10 @@ func (d *RuleDatasource) Add(rule Rule) {
 	}
 
 	proxyId := Window.Sidebar.SelectedId()
-	if rules, ok := d.rules[proxyId]; ok {
-		d.rules[proxyId] = append(rules, rule)
+	if rules, ok := d.datas[proxyId]; ok {
+		d.datas[proxyId] = append(rules, rule)
 	} else {
-		d.rules[proxyId] = []Rule{rule}
+		d.datas[proxyId] = []Rule{rule}
 	}
 	d.write()
 }
@@ -181,8 +212,8 @@ func (d *RuleDatasource) Delete(index int) {
 	defer d.mux.Unlock()
 
 	proxyId := Window.Sidebar.SelectedId()
-	if rules, ok := d.rules[proxyId]; ok {
-		d.rules[proxyId] = append(rules[:index], rules[index+1:]...)
+	if rules, ok := d.datas[proxyId]; ok {
+		d.datas[proxyId] = append(rules[:index], rules[index+1:]...)
 	}
 	d.write()
 }
@@ -192,12 +223,12 @@ func (d *RuleDatasource) DeleteById(id string) {
 	defer d.mux.Unlock()
 
 	proxyId := Window.Sidebar.SelectedId()
-	if rules, ok := d.rules[proxyId]; ok {
+	if rules, ok := d.datas[proxyId]; ok {
 		for i, r := range rules {
 			if r.ID != id {
 				continue
 			}
-			d.rules[proxyId] = append(rules[:i], rules[i+1:]...)
+			d.datas[proxyId] = append(rules[:i], rules[i+1:]...)
 		}
 	}
 	d.write()
@@ -207,16 +238,16 @@ func (d *RuleDatasource) Remove() {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
-	delete(d.rules, Window.Sidebar.SelectedId())
+	delete(d.datas, Window.Sidebar.SelectedId())
 	d.write()
 }
 
 func (d *RuleDatasource) write() {
-	buf, _ := json.Marshal(d.rules)
+	buf, _ := json.Marshal(d.datas)
 	defaults.SetObjectForKey(foundation.String_StringWithString(string(buf)), ruleDefaultsKey)
 }
 
 func (d *RuleDatasource) LastIndex() int {
 	proxyId := Window.Sidebar.SelectedId()
-	return len(d.rules[proxyId]) - 1
+	return len(d.datas[proxyId]) - 1
 }
