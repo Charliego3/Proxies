@@ -41,7 +41,7 @@ var (
 
 func (app *App) launching(foundation.Notification) {
 	app.setupSystemBar()
-	app.SetActivationPolicy(appkit.ApplicationActivationPolicyRegular)
+	app.SetActivationPolicy(appkit.ApplicationActivationPolicyAccessory)
 
 	if proxies.Length() == 0 {
 		app.launchWindow(objc.Object{})
